@@ -92,7 +92,8 @@ export function estimate(props = {}, project = {}) {
     ["Energization", RATES.energize_weeks * 7],
   ];
   const today = iso(Date.now());
-  let cursor = project?.filing_target || today;
+  const ft = project?.filing_target;
+  let cursor = ft && !Number.isNaN(Date.parse(ft)) ? iso(Date.parse(ft)) : today;
   const calendar = durations.map(([phase, days]) => {
     const start = cursor;
     cursor = addDays(start, Math.max(1, days));
@@ -109,7 +110,7 @@ export function estimate(props = {}, project = {}) {
     [permitMonths / 24, permits.length ? `Permitting: ${[...permits].sort((a, b) => b.months_max - a.months_max)[0].code} review (${permitMonths} mo max)` : null],
     [fireShare, `Wildfire exposure: ${fireKm.toFixed(1)} km of overhead in high fire-hazard terrain`],
     [((props.protected_km || 0) + (props.tribal_km || 0)) / 5, "Protected or tribal land crossing"],
-  ].filter((r) => r[1]).sort((a, b) => b[0] - a[0]);
+  ].filter((r) => r[0] > 0 && r[1]).sort((a, b) => b[0] - a[0]);
 
   return {
     upfront_total: total,

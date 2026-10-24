@@ -45,4 +45,7 @@ const wild = estimate({ total_cost_usd: 1e12, total_km: 1e4, high_fire_km: 1e4, 
 assert.ok(wild.score >= 0 && wild.score <= 100);
 assert.ok(estimate({}).score >= 0);
 
+assert.equal(estimate({}).top_risk, "No major risk flagged");
+assert.equal(estimate(p, { filing_target: "garbage" }).calendar[0].start, new Date().toISOString().slice(0, 10));
+
 console.log("estimates: all checks passed");
