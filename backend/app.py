@@ -9,6 +9,8 @@ GET  /stats            executor, worker pids, cache hit/miss counters
 GET  /bounds           study-region bbox + data provenance
 GET  /overlays/{name}  firerisk (PNG over the bbox) | fire | protected | tribal | powerlines | roads | substations (GeoJSON)
 GET  /assumptions      cost-model constants
+GET/POST /projects, GET/PATCH/DELETE /projects/{id}, POST /projects/{id}/routes {preset, start_lonlat?, end_lonlat?},
+GET/PATCH/DELETE /routes/{id}        project/route store (SQLite, data/projects.db; seeded with samples on first start)
 GET  /                 the Cesium frontend (static files in frontend/)
 
 Concurrency: /route is async; routing (CPU-bound) runs in a ProcessPoolExecutor whose
@@ -18,14 +20,18 @@ share one computation (single-flight).  Environment variables:
 
     ROUTE_WORKERS     worker processes (default 8; 0 = inline in a thread pool)
     ROUTE_CACHE_SIZE  cached responses (default 1024; 0 disables)
+    GENTIE_DB         project store path (default data/projects.db)
+    GENTIE_NO_SEED    1 = don't create sample projects in an empty store
 """
 import asyncio
 import json
 import os
+import sqlite3
 from collections import OrderedDict
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import asynccontextmanager
-from typing import Annotated
+from datetime import date
+from typing import Annotated, Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.concurrency import run_in_threadpool
@@ -35,8 +41,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import config as C
-from backend import worker
+from backend import seed, worker
+from backend.store import Store
 
+Phase = Literal["drafting", "comparing", "permit-risk", "ready"]
+Preset = Literal[tuple(C.PRESETS)]
 LonLat = Annotated[list[float], Field(min_length=2, max_length=2, examples=[[-116.69, 33.10]])]
 OVERLAYS = {"fire": "fire.geojson", "firerisk": "firerisk.png", "protected": "protected.geojson",
             "tribal": "tribal.geojson", "powerlines": "powerlines.geojson", "roads": "roads.geojson",
@@ -92,7 +101,7 @@ class RouteCache:
                 "inflight": len(self.inflight)}
 
 
-state = {"pool": None, "pids": [], "meta": None, "cache": RouteCache(CACHE_SIZE)}
+state = {"pool": None, "pids": [], "meta": None, "cache": RouteCache(CACHE_SIZE), "store": None}
 
 
 @asynccontextmanager
@@ -109,6 +118,8 @@ async def lifespan(_app):
         worker.init_worker()
         mode = "inline (thread pool, single process)"
     print(f"[gentie] {mode}; cache {CACHE_SIZE} entries; synthetic layers: {state['meta']['synthetic_layers'] or 'none'}")
+    state["store"] = Store(os.getenv("GENTIE_DB", C.PROJECTS_DB))
+    await seed.seed_if_empty(state["store"], cached_route)
     yield
     if state["pool"]:
         state["pool"].shutdown(cancel_futures=True)
@@ -122,6 +133,33 @@ class RouteRequest(BaseModel):
     start: LonLat
     end: LonLat
     preset: str = "balanced"  # validated by the router (unknown -> 400)
+
+
+class ProjectCreate(BaseModel):
+    name: str = Field(min_length=1)
+    voltage_kv: int = Field(gt=0)
+    phase: Phase
+    filing_target: date | None = None
+
+
+class ProjectPatch(BaseModel):
+    # defaults aren't validated, so these may be omitted but an explicit null -> 422 (only filing_target is nullable)
+    name: str = Field(None, min_length=1)
+    voltage_kv: int = Field(None, gt=0)
+    phase: Phase = None
+    filing_target: date | None = None
+    start_lonlat: LonLat = None
+    end_lonlat: LonLat = None
+
+
+class RouteCreate(BaseModel):
+    preset: Preset
+    start_lonlat: LonLat | None = None
+    end_lonlat: LonLat | None = None
+
+
+class RouteRename(BaseModel):
+    name: str = Field(min_length=1)
 
 
 @app.get("/health")
@@ -162,11 +200,105 @@ async def _compute(start, end, preset):
     return await run_in_threadpool(worker.route_json, start, end, preset)
 
 
+async def cached_route(start, end, preset):
+    """-> (status, json_bytes, cache_state); identical requests share one computation."""
+    key = (*(round(v, CACHE_KEY_DECIMALS) for v in (*start, *end)), preset)
+    return await state["cache"].get_or_compute(key, lambda: _compute(start, end, preset))
+
+
 @app.post("/route")
 async def route(req: RouteRequest):
-    key = (*(round(v, CACHE_KEY_DECIMALS) for v in (*req.start, *req.end)), req.preset)
-    status, body, cache_state = await state["cache"].get_or_compute(key, lambda: _compute(req.start, req.end, req.preset))
+    status, body, cache_state = await cached_route(req.start, req.end, req.preset)
     return Response(content=body, status_code=status, media_type="application/json", headers={"X-Cache": cache_state})
+
+
+async def _route_or_400(start, end, preset):
+    status, body, _ = await cached_route(start, end, preset)
+    if status != 200:
+        raise HTTPException(status_code=status, detail=json.loads(body)["detail"])
+    return json.loads(body)
+
+
+def _project_or_404(id):
+    p = state["store"].get_project(id)
+    if p is None:
+        raise HTTPException(status_code=404, detail=f"project {id} not found")
+    return p
+
+
+@app.get("/projects")
+def list_projects():
+    return state["store"].list_projects()
+
+
+@app.post("/projects", status_code=201)
+def create_project(req: ProjectCreate):
+    return state["store"].create_project(**req.model_dump(mode="json"))
+
+
+@app.get("/projects/{id}")
+def get_project(id: int):
+    return _project_or_404(id)
+
+
+@app.patch("/projects/{id}")
+async def update_project(id: int, req: ProjectPatch):
+    p = _project_or_404(id)
+    fields = req.model_dump(mode="json", exclude_unset=True)
+    start, end = fields.get("start_lonlat", p["start_lonlat"]), fields.get("end_lonlat", p["end_lonlat"])
+    results = []
+    if (start, end) != (p["start_lonlat"], p["end_lonlat"]) and p["routes"]:
+        # recompute every route first, so a bad endpoint (400) leaves the project untouched
+        results = await asyncio.gather(*[_route_or_400(start, end, r["preset"]) for r in p["routes"]])
+    for r, result in zip(p["routes"], results):
+        state["store"].replace_route_result(r["id"], result)
+    return state["store"].update_project(id, **fields) or _project_or_404(id)
+
+
+@app.delete("/projects/{id}", status_code=204)
+def delete_project(id: int):
+    if not state["store"].delete_project(id):
+        raise HTTPException(status_code=404, detail=f"project {id} not found")
+    return Response(status_code=204)
+
+
+@app.post("/projects/{id}/routes", status_code=201)
+async def add_route(id: int, req: RouteCreate):
+    p = _project_or_404(id)
+    start, end = req.start_lonlat or p["start_lonlat"], req.end_lonlat or p["end_lonlat"]
+    if not (start and end):
+        raise HTTPException(status_code=400, detail="project has no endpoints yet: pass start_lonlat and end_lonlat")
+    result = await _route_or_400(start, end, req.preset)
+    try:
+        if (start, end) != (p["start_lonlat"], p["end_lonlat"]):
+            state["store"].update_project(id, start_lonlat=start, end_lonlat=end)
+        summary = state["store"].add_route(id, C.PRESETS[req.preset]["label"], req.preset, result)
+    except sqlite3.IntegrityError:  # project deleted while the route was computing
+        raise HTTPException(status_code=404, detail=f"project {id} not found")
+    return {"route_summary": summary, "result": result}
+
+
+@app.get("/routes/{id}")
+def get_route(id: int):
+    r = state["store"].get_route(id)
+    if r is None:
+        raise HTTPException(status_code=404, detail=f"route {id} not found")
+    return r
+
+
+@app.patch("/routes/{id}")
+def rename_route(id: int, req: RouteRename):
+    r = state["store"].update_route(id, req.name)
+    if r is None:
+        raise HTTPException(status_code=404, detail=f"route {id} not found")
+    return r
+
+
+@app.delete("/routes/{id}", status_code=204)
+def delete_route(id: int):
+    if not state["store"].delete_route(id):
+        raise HTTPException(status_code=404, detail=f"route {id} not found")
+    return Response(status_code=204)
 
 
 @app.get("/stats")

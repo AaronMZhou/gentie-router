@@ -11,6 +11,7 @@ Concurrency / caching checks against a real server process.
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -25,7 +26,9 @@ CREELMAN = [-116.85305, 33.01807]
 
 
 def start_server(workers=4):
-    env = {**os.environ, "ROUTE_WORKERS": str(workers), "ROUTE_CACHE_SIZE": "256"}
+    # keep the real project store (data/projects.db) out of this test
+    env = {**os.environ, "ROUTE_WORKERS": str(workers), "ROUTE_CACHE_SIZE": "256", "GENTIE_NO_SEED": "1",
+           "GENTIE_DB": os.path.join(tempfile.mkdtemp(), "projects.db")}
     proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "backend.app:app", "--port", str(PORT), "--log-level", "warning"],
                             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for _ in range(120):

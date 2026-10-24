@@ -33,6 +33,7 @@ OVERLAY_DIR = PROCESSED_DIR / "overlays"
 META_PATH = PROCESSED_DIR / "meta.json"
 FRONTEND_DIR = ROOT / "frontend"
 DEMO_ROUTE_PATH = FRONTEND_DIR / "demo_route.json"
+PROJECTS_DB = DATA_DIR / "projects.db"  # SQLite project/route store (git-ignored; env GENTIE_DB overrides)
 
 # --------------------------------------------------------------------------
 # Data sources (public REST endpoints, verified Oct 2026)
