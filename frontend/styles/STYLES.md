@@ -49,6 +49,13 @@ element can pin a theme for its subtree (`<section data-theme="light">`). Read t
 | `--route-2` | `#ff8a5b` | `#e0682b` | second route |
 | `--route-3` | `#9aa0b6` | `#6a6f67` | third route |
 | `--route-4` | `#7ef2c4` | `#2f6fd0` | fourth route (light differs because `--ok` = `--acc` there) |
+| `--series-1` | `#8fb4ff` | `#0f9d6b` | chart series 1: donut slice 1, plain Gantt bar |
+| `--series-2` | `#ff8a5b` | `#e0682b` | chart series 2: donut slice 2, Gantt `.o` (regulatory review) |
+| `--series-3` | `#7ef2c4` | `#2f6fd0` | chart series 3: donut slice 3, Gantt `.g` (construction, energize) |
+| `--series-4` | `#9aa0b6` | `#6a6f67` | chart series 4: donut slice 4 ("other") |
+
+Charts use `--series-*`, never `--acc`/`--ok` directly. In light, `--ok` equals `--acc`, so they
+would collide. All four series are mutually distinct in each theme.
 
 \* The spec gives light `--muted` as `#6b7068`, which is 4.49:1 on `--bg` (just under AA). It is
 darkened one step to `#6a6f67` (4.55:1). Everything else is verbatim from the spec/mockup.
@@ -101,6 +108,7 @@ It sets the theme before first paint (no flash) and installs the error half of t
     if (t !== "dark" && t !== "light") t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
     d.dataset.theme = t;
     window.addEventListener("error", function (e) { d.dataset.errors = (d.dataset.errors || "") + e.message + "|"; });
+    window.addEventListener("unhandledrejection", function (e) { d.dataset.errors = (d.dataset.errors || "") + (e.reason && e.reason.message || String(e.reason)) + "|"; });
   })();
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -114,8 +122,10 @@ It sets the theme before first paint (no flash) and installs the error half of t
 
 - When boot finishes (data loaded or an error/empty state rendered), the page module runs
   `document.documentElement.dataset.ready = "1"`.
-- Uncaught errors are appended to `<html data-errors>` by the head snippet. A page that shows an
-  inline error state for a failed fetch has handled it: that's not an uncaught error.
+- Uncaught errors **and unhandled Promise rejections** are appended to `<html data-errors>` by the
+  head snippet. A page that shows an inline error state for a failed fetch has handled it: that's
+  not an uncaught error. Every `async` path must `catch` (or `await` inside `try`). A forgotten
+  rejection fails the smoke test.
 - `tools/smoke_pages.py` passes a page only with `data-ready="1"` and empty `data-errors`.
 
 ### Full page template
@@ -368,15 +378,15 @@ up to 12. Below 900 px everything stacks.
 
 ### Donut (`.donut`)
 
-Four slices in `--acc`, `--acc2`, `--ok`, `--muted`. Set the cumulative split points.
+Four slices in `--series-1..4`. Set the cumulative split points.
 
 ```html
 <div class="donut" style="--a:44%;--b:63%;--c:81%" role="img" aria-label="Towers 44%, ROW 19%, conductor 18%, other 19%"></div>
 <div class="lg">
-  <span><span><i style="background:var(--acc)"></i>Towers &amp; foundations</span>$170M</span>
-  <span><span><i style="background:var(--acc2)"></i>Right-of-way</span>$73M</span>
-  <span><span><i style="background:var(--ok)"></i>Conductor</span>$69M</span>
-  <span><span><i style="background:var(--muted)"></i>Permits, eng.</span>$74M</span>
+  <span><span><i style="background:var(--series-1)"></i>Towers &amp; foundations</span>$170M</span>
+  <span><span><i style="background:var(--series-2)"></i>Right-of-way</span>$73M</span>
+  <span><span><i style="background:var(--series-3)"></i>Conductor</span>$69M</span>
+  <span><span><i style="background:var(--series-4)"></i>Permits, eng.</span>$74M</span>
 </div>
 ```
 
@@ -392,8 +402,8 @@ The last column is right-aligned mono. It works for any two-column key/value tab
 
 ### Gantt (`.gantt`)
 
-Positions are percentages of the whole calendar span. Bar colours: plain = `--acc`, `.o` = `--acc2`
-(regulatory review), `.g` = `--ok` (construction, energize).
+Positions are percentages of the whole calendar span. Bar colours: plain = `--series-1`,
+`.o` = `--series-2` (regulatory review), `.g` = `--series-3` (construction, energize).
 
 ```html
 <div class="gantt">
@@ -515,7 +525,8 @@ Rules that follow:
 - **Reduced motion:** under `prefers-reduced-motion: reduce`, all CSS animations and transitions are
   off (`components.css`). JS animations (the Cesium flowing line, fly-along easing) must check
   `matchMedia("(prefers-reduced-motion: reduce)")` themselves.
-- Colour is never the only signal: pills have text, risks have ▲, legends have labels.
+- Colour is never the only signal: pills have text, risks have ▲, legends have labels. Chart
+  series use `--series-*`, which stay distinct in both themes.
 - Decorative SVG gets `aria-hidden="true"`; the donut gets `role="img"` and an `aria-label`.
 
 ## 9. JS: `js/theme.js`

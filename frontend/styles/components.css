@@ -163,13 +163,13 @@ img, svg { display: block; max-width: 100%; }
 .gantt { display: grid; grid-template-columns: 150px 1fr; gap: 8px 14px; font-size: var(--fs-small); align-items: center; }
 .gantt .years { display: flex; justify-content: space-between; }
 .gantt .track { position: relative; height: 18px; background: var(--line); border-radius: 4px; }
-.gantt .track i { position: absolute; top: 0; bottom: 0; border-radius: 4px; background: var(--acc); opacity: .85; }
-.gantt .track i.o { background: var(--acc2); }
-.gantt .track i.g { background: var(--ok); }
+.gantt .track i { position: absolute; top: 0; bottom: 0; border-radius: 4px; background: var(--series-1); opacity: .85; }
+.gantt .track i.o { background: var(--series-2); }
+.gantt .track i.g { background: var(--series-3); }
 
 /* split points --a/--b/--c are cumulative percentages for 4 slices */
 .donut { --a: 25%; --b: 50%; --c: 75%; width: 150px; height: 150px; border-radius: 50%; position: relative; margin: 0 auto;
-  background: conic-gradient(var(--acc) 0 var(--a), var(--acc2) var(--a) var(--b), var(--ok) var(--b) var(--c), var(--muted) var(--c) 100%); }
+  background: conic-gradient(var(--series-1) 0 var(--a), var(--series-2) var(--a) var(--b), var(--series-3) var(--b) var(--c), var(--series-4) var(--c) 100%); }
 .donut::after { content: ""; position: absolute; inset: 22px; border-radius: 50%; background: var(--bg); }
 .lg { display: grid; gap: 8px; font-size: 13px; margin-top: 16px; }
 .lg > span { display: flex; justify-content: space-between; gap: 10px; }

@@ -18,6 +18,7 @@ import html.parser
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -151,6 +152,14 @@ def main():
         port = API_PORT
         cmd = [sys.executable, "-m", "uvicorn", "backend.app:app", "--host", "127.0.0.1", "--port", str(port)]
     base = f"http://127.0.0.1:{port}"
+    # a stale server on the port would answer wait_http and get tested instead of this checkout
+    for p in (port, PROXY_PORT) if args.eval else (port,):
+        try:
+            socket.create_connection(("127.0.0.1", p), 0.5).close()
+            shutil.rmtree(tmp, ignore_errors=True)
+            sys.exit(f"FAIL: port {p} already in use")
+        except OSError:
+            pass
     with open(log, "w") as lf:
         server = subprocess.Popen(cmd, cwd=ROOT, env=env, stdout=lf, stderr=subprocess.STDOUT)
     proxy = None
@@ -160,9 +169,11 @@ def main():
         if args.eval:
             proxy = start_proxy(base, args.eval)
             base = f"http://127.0.0.1:{PROXY_PORT}"
-        for u in args.urls:
+        for i, u in enumerate(args.urls):
             url = u if u.startswith("http") else base + "/" + u.lstrip("/")
-            reason = check(chrome, url, os.path.join(tmp, "profile"), bool(args.eval))
+            reason = check(chrome, url, os.path.join(tmp, f"profile-{i}"), bool(args.eval))
+            if not reason and server.poll() is not None:
+                reason = f"server exited ({server.returncode}) during the run"
             print(f"FAIL {u}: {reason}" if reason else f"OK {u}", flush=True)
             failed += bool(reason)
     finally:

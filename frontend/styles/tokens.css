@@ -39,6 +39,8 @@
   --glow: 0 0 18px #8fb4ff66;
   --mapbg: #060914; --contour: #8fb4ff1c;
   --route-1: var(--acc); --route-2: #ff8a5b; --route-3: #9aa0b6; --route-4: #7ef2c4;
+  /* chart series (donut slices, Gantt bars): must stay mutually distinct */
+  --series-1: #8fb4ff; --series-2: #ff8a5b; --series-3: #7ef2c4; --series-4: #9aa0b6;
 }
 
 /* Solar Paper (light) */
@@ -52,4 +54,6 @@
   --glow: 0 0 14px #0f9d6b44;
   --mapbg: #e6e3d7; --contour: #0f9d6b26;
   --route-1: var(--acc); --route-2: #e0682b; --route-3: #6a6f67; --route-4: #2f6fd0;
+  /* --ok equals --acc here, so series-3 is blue instead of --ok */
+  --series-1: #0f9d6b; --series-2: #e0682b; --series-3: #2f6fd0; --series-4: #6a6f67;
 }

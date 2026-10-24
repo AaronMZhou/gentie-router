@@ -13,6 +13,7 @@
       if (t !== "dark" && t !== "light") t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
       d.dataset.theme = t;
       window.addEventListener("error", function (e) { d.dataset.errors = (d.dataset.errors || "") + e.message + "|"; });
+      window.addEventListener("unhandledrejection", function (e) { d.dataset.errors = (d.dataset.errors || "") + (e.reason && e.reason.message || String(e.reason)) + "|"; });
     })();
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -108,13 +109,13 @@
 
     <div class="demo"><span class="mono-label">Route cards</span>
       <div class="rail">
-        <div class="rcard is-selected" tabindex="0">
+        <div class="rcard is-selected" tabindex="0" role="button" aria-pressed="true">
           <div class="top"><span class="pill pill--blue">Recommended</span><div class="score acc">82 <span class="est" title="Placeholder score">est.</span></div></div>
           <h5>Route 1 · <span class="it">Ridge</span></h5>
           <div class="mm"><div>Upfront<b>$386M</b></div><div>Upkeep/yr<b>$5.4M <span class="est" title="Placeholder estimate">est.</span></b></div><div>Energize<b>Q3 2031 <span class="est" title="Placeholder estimate">est.</span></b></div><div>Length<b>21.4 mi</b></div><div>Towers<b>112</b></div><div>Permits<b>6</b></div></div>
           <div class="risk">▲ 4.2 mi through fire tier 3</div>
         </div>
-        <div class="rcard" tabindex="0">
+        <div class="rcard" tabindex="0" role="button" aria-pressed="false">
           <div class="top"><span class="pill">Cheapest build</span><div class="score">74</div></div>
           <h5>Route 2 · <span class="it">SR-78 corridor</span></h5>
           <div class="mm"><div>Upfront<b>$341M</b></div><div>Upkeep/yr<b>$7.9M</b></div><div>Energize<b>Q1 2032</b></div><div>Length<b>24.8 mi</b></div><div>Towers<b>131</b></div><div>Permits<b>9</b></div></div>
@@ -139,7 +140,7 @@
       <div class="bento">
         <div class="cell" style="grid-column:span 6"><div class="mono-label">Upfront cost</div><h6>Where the <span class="it">$386M</span> goes</h6>
           <div class="donut" style="--a:44%;--b:63%;--c:81%"></div>
-          <div class="lg"><span><span><i style="background:var(--acc)"></i>Towers &amp; foundations</span>$170M</span><span><span><i style="background:var(--acc2)"></i>Right-of-way</span>$73M</span><span><span><i style="background:var(--ok)"></i>Conductor</span>$69M</span><span><span><i style="background:var(--muted)"></i>Permits, eng.</span>$74M</span></div>
+          <div class="lg"><span><span><i style="background:var(--series-1)"></i>Towers &amp; foundations</span>$170M</span><span><span><i style="background:var(--series-2)"></i>Right-of-way</span>$73M</span><span><span><i style="background:var(--series-3)"></i>Conductor</span>$69M</span><span><span><i style="background:var(--series-4)"></i>Permits, eng.</span>$74M</span></div>
         </div>
         <div class="cell" style="grid-column:span 6"><div class="mono-label">Inventory</div><h6>Bill of <span class="it">materials</span></h6>
           <table class="inv"><tr><td>Lattice towers</td><td>112</td></tr><tr><td>Conductor (ACSR Drake)</td><td>207 km</td></tr><tr><td>OH/UG transitions</td><td>0</td></tr></table>
