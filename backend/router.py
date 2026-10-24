@@ -95,7 +95,7 @@ class Router:
             raise RouteError("start and end fall in the same grid cell")
 
         path, _ = route_through_array(self.g.routing, s_rc, e_rc, fully_connected=True, geometric=True)
-        path = np.asarray(path)
+        path = self.straighten(np.asarray(path))
         rows, cols = path[:, 0], path[:, 1]
 
         # length represented by each path cell = half of its in-step + half of its out-step
@@ -204,6 +204,52 @@ class Router:
             "compute_ms": round((time.perf_counter() - t0) * 1000),
         }
         return {"type": "FeatureCollection", "properties": props, "features": features}
+
+    # ------------------------------------------------------------------ straighten
+    def straighten(self, path):
+        """String-pulling: replace grid zig-zags with straight spans wherever a straight span
+        costs no more than the path it replaces (within STRAIGHTEN_TOL).
+
+        8-connected least-cost paths are non-unique on near-uniform cost and tend to dog-leg
+        (go diagonal, then straight) - up to ~1 km off the true shortest line over 10 km.
+        """
+        cost = self.g.routing
+        step = np.hypot(*np.diff(path, axis=0).T) * self.cs
+        c = cost[path[:, 0], path[:, 1]]
+        cum = np.r_[0, np.cumsum((c[:-1] + c[1:]) / 2 * step)]  # cost along the path up to vertex k
+        n = len(path)
+
+        def ok(i, j):
+            rr, cc = draw_line(*path[i], *path[j])
+            span = np.hypot(*(path[j] - path[i])) * self.cs
+            return cost[rr, cc].mean() * span <= (cum[j] - cum[i]) * (1 + C.STRAIGHTEN_TOL)
+
+        anchors, i = [0], 0
+        while i < n - 1:
+            best, hop = i + 1, 1
+            while True:  # gallop forward...
+                j = min(i + hop, n - 1)
+                if not ok(i, j):
+                    break
+                best = j
+                if j == n - 1:
+                    break
+                hop *= 2
+            lo, hi = best + 1, j - 1  # ...then binary-search the farthest acceptable vertex
+            while lo <= hi:
+                mid = (lo + hi) // 2
+                if ok(i, mid):
+                    best, lo = mid, mid + 1
+                else:
+                    hi = mid - 1
+            anchors.append(best)
+            i = best
+
+        cells = [path[0][None]]
+        for a, b in zip(anchors, anchors[1:]):
+            rr, cc = draw_line(*path[a], *path[b])
+            cells.append(np.c_[rr, cc][1:])
+        return np.vstack(cells)
 
     # ------------------------------------------------------------------ land
     def land_crossings(self, rows, cols, lengths_m):

@@ -78,6 +78,32 @@ python -m http.server 8100 --directory frontend   # then open http://localhost:8
 
 To serve the frontend separately from the API, set `API_BASE: "http://localhost:8000"` in `frontend/config.js` (CORS is open).
 
+## Validation against real lines
+
+```bash
+python -m backend.validate   # prints metrics, writes frontend/validation.json for the "Compare to real line" button
+```
+
+Can the router reproduce existing SDG&E 69 kV lines from OSM? Each line is **removed from the corridor layer** before routing between its endpoints (leave-one-out). Otherwise the "follow existing lines" discount would just trace it. Distances are sampled every 10 m along our route.
+
+| Line (real length) | Variant | Mean distance to real line | Within 500 m |
+|---|---|---|---|
+| 637, Creelman → east (8.7 km) | **Router, line hidden** | **1,520 m** | **13%** |
+| | Straight line (reference) | 177 m | 100% |
+| | Router, line known (co-location) | 466 m | 64% |
+| | Line hidden, preserves passable | 302 m | 69% |
+| 635, Creelman → south (9.2 km in-region) | **Router, line hidden** | **1,425 m** | **18%** |
+| | Straight line (reference) | 153 m | 100% |
+| | Router, line known (co-location) | 30 m | 100% |
+| | Line hidden, preserves passable | 1,425 m | 18% |
+
+What this shows:
+- **The router does not reproduce these lines, and a straight line is a better predictor of where they are.** These 69 kV lines are nearly straight and predate today's constraints.
+- **Line 637 crosses 3.4 km of county/BLM preserves** (Simon Preserve, Mt. Gower Preserve), which the model treats as near-impassable for new right-of-way. Making preserves passable cuts the error from 1,520 m to 302 m, so most of the gap is a deliberate modelling choice, not noise.
+- **Line 635's gap has no single cause.** Removing fire, slope, roads, the power-line discount or preserves one at a time each changes it by under 15%. The cost surface has a near-equal alternative corridor to the east via Cañada de San Vicente.
+- **Two fixes came out of this.** (1) *String-pulling*: on near-uniform cost, the 8-connected grid path dog-legged up to 1.3 km off the true shortest line. The router now replaces zig-zags with straight spans wherever they cost no more (1% tolerance), and a pure-distance route now matches the straight line within 153–177 m. (2) *Co-location*: a preserve crossed **inside an existing power-line easement** costs ×3 instead of ×1000. With the line known, the router now follows line 635 within 30 m.
+- This is 2 lines in one region. It's a sanity check, not a statistical validation.
+
 ## API
 
 `POST /route` with `{"start": [lon, lat], "end": [lon, lat]}` returns a GeoJSON `FeatureCollection`:
@@ -111,9 +137,10 @@ routing     = combined × 1000 on protected land (near-impassable) × 10 on trib
 | Along major road | ×0.85 | ×0.6 (trench in road ROW) |
 | GAP 3 public land | ×1.25 | ×1.25 |
 | Tribal land (routing penalty only) | ×10 | ×10 |
+| Protected land inside an existing power-line easement (routing penalty) | ×3 instead of ×1000 | same |
 | OH↔UG transition (post-hoc) | $750k each | |
 
-Routing uses `skimage.graph.route_through_array` (8-connected, geometric distances) on the combined grid. The raw path's per-cell modes are smoothed: any overhead or underground run shorter than 450 m is merged into its neighbours. The path is then split into contiguous runs, and each run is simplified (20 m tolerance) and costed with its chosen mode. Transition structures are added on top of that cost.
+Routing uses `skimage.graph.route_through_array` (8-connected, geometric distances) on the combined grid. A string-pulling pass then replaces grid zig-zags with straight spans wherever a span costs no more than 1% above the path it replaces. The raw path's per-cell modes are smoothed: any overhead or underground run shorter than 450 m is merged into its neighbours. The path is then split into contiguous runs, and each run is simplified (20 m tolerance) and costed with its chosen mode. Transition structures are added on top of that cost.
 
 ## Assumptions (read before quoting numbers)
 

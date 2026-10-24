@@ -18,6 +18,7 @@
     fire: { 1: "#ffd23f", 2: "#ff6b35", 3: "#e63030" },
     prot: { 1: "#9be3b5", 2: "#2fbf71" },
     tribal: "#e0a458",
+    real: Cesium.Color.fromCssColorString("#ff4fd8"),
   };
 
   // ------------------------------------------------------------------ viewer
@@ -231,6 +232,7 @@
     layers.route.entities.removeAll();
     layers.baseline.entities.removeAll();
     $("results").hidden = true;
+    $("validation").hidden = true;
   }
 
   function reset() {
@@ -402,6 +404,44 @@
     $("profEnd").textContent = `${dMax.toFixed(1)} km · ${Math.round(zMin)}–${Math.round(zMax)} m`;
   }
 
+  // ------------------------------------------------------------------ validation
+  let validation = null, valIndex = -1;
+  async function showValidation() {
+    try {
+      if (!validation) {
+        const r = await fetch("validation.json");
+        if (!r.ok) throw new Error(r.statusText);
+        validation = await r.json();
+      }
+    } catch (err) {
+      toast(`Could not load validation.json (run python -m backend.validate): ${err.message}`);
+      return;
+    }
+    valIndex = (valIndex + 1) % validation.cases.length;
+    const c = validation.cases[valIndex];
+    showRoute(c.route, false);
+    layers.route.entities.add({
+      polyline: {
+        positions: Cesium.Cartesian3.fromDegreesArray(c.real_line.geometry.coordinates.flat()),
+        clampToGround: true, width: 4, material: COLORS.real.withAlpha(0.9),
+      },
+    });
+    $("validation").hidden = false;
+    $("valLabel").textContent = `${c.label} (${valIndex + 1}/${validation.cases.length}, real line ${c.metrics.real_km} km)`;
+    const row = (name, m) => `<tr><td>${name}</td><td>${m.mean_dist_m} m</td><td>${m.pct_within_500m.toFixed(0)}%</td><td>${m.route_km} km</td></tr>`;
+    $("valRows").innerHTML =
+      row("Router (line hidden)", c.metrics) +
+      row("Straight line", c.baseline_metrics) +
+      row("Router (line known)", c.with_line_in_corridor_metrics) +
+      row("Hidden + preserves passable", c.preserves_passable_metrics);
+    const prot = (c.real_line_protected_crossed || []).map((u) => `${u.name} (${fmtKm(u.km)})`).join(", ");
+    $("valNote").innerHTML =
+      `Leave-one-out: the real line is removed from the corridor layer before routing.` +
+      (prot ? `<br><span class="bad">Real line crosses preserves:</span> ${prot} — likely predating them; our model treats preserves as near-impassable for new right-of-way.` : "");
+    $("btnValidate").textContent = `Compare to real line (${(valIndex + 1) % validation.cases.length + 1}/${validation.cases.length} next)`;
+    setStatus("Magenta = real existing line; orange/cyan = our route with that line hidden.");
+  }
+
   // ------------------------------------------------------------------ clicks
   const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
   handler.setInputAction((click) => {
@@ -452,6 +492,7 @@
       toast(`Could not load demo_route.json: ${err.message}`);
     }
   };
+  $("btnValidate").onclick = showValidation;
   $("tglFire").onchange = (e) => toggleRisk(e.target.checked);
   $("tglHftd").onchange = (e) => toggleOverlay("fire", e.target.checked);
   $("tglProtected").onchange = (e) => toggleOverlay("protected", e.target.checked);

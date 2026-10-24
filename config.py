@@ -115,6 +115,8 @@ UG_ROAD_MULT = 0.6
 # Land status
 MANAGED_LAND_MULT = 1.25     # GAP 3 multiple-use federal/state land (extra permitting, NEPA)
 PROTECTED_PENALTY = 1000.0   # GAP 1-2 / parks / wilderness: routing penalty (near-impassable)
+PROTECTED_IN_CORRIDOR_PENALTY = 3.0  # ...but co-locating inside an EXISTING power-line easement through
+                             # a preserve is permittable (preserves were often acquired around them)
 TRIBAL_PENALTY = 10.0        # reservations / trust land: routing penalty (passable only with tribal
                              # consent + consultation; strongly avoided but not forbidden)
 OUTSIDE_REGION_PENALTY = 1e4 # cells in the projected grid but outside the lon/lat bbox
@@ -124,3 +126,4 @@ MIN_SEGMENT_M = 450.0        # overhead/underground runs shorter than this are m
 TRANSITION_COST_USD = 750_000  # ASSUMPTION: riser pole / transition structure per OH<->UG switch
 TOWER_SPACING_M = 300.0      # visual tower markers along overhead segments
 SIMPLIFY_TOLERANCE_M = 20.0
+STRAIGHTEN_TOL = 0.01        # accept a straight span if it costs <= 1% more than the grid path it replaces

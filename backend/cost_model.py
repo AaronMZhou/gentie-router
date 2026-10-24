@@ -54,7 +54,8 @@ def _lut(levels, table):
     return lut[np.clip(levels, 0, len(lut) - 1)]
 
 
-def build_cost_grids():
+def build_cost_grids(corridor_override=None):
+    """corridor_override: replacement corridor raster (used by leave-one-out validation)."""
     if not C.META_PATH.exists():
         raise FileNotFoundError("Run `python data/prepare_data.py` first (data/processed is missing).")
     meta = json.loads(C.META_PATH.read_text())
@@ -65,7 +66,7 @@ def build_cost_grids():
     protected, _ = _read("protected")
     owner, _ = _read("owner")
     landunit, _ = _read("landunit")
-    corridor, _ = _read("corridor")
+    corridor = corridor_override if corridor_override is not None else _read("corridor")[0]
     region, _ = _read("region")
 
     oh_base = C.OVERHEAD_COST_PER_MILE / C.METERS_PER_MILE
@@ -95,6 +96,7 @@ def build_cost_grids():
     penalty = np.ones_like(dollar)
     penalty[owner == C.TRIBAL] = C.TRIBAL_PENALTY
     penalty[protected == 2] = C.PROTECTED_PENALTY
+    penalty[(protected == 2) & power] = C.PROTECTED_IN_CORRIDOR_PENALTY
     penalty[region == 0] = C.OUTSIDE_REGION_PENALTY
     routing = (dollar * penalty).astype(np.float32)
 

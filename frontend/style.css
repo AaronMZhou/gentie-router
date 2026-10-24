@@ -60,6 +60,7 @@ button.primary:hover { filter: brightness(1.1); }
 .sw.line { background: #ffe14d; height: 3px; }
 .sw.base { border-top: 2px solid rgba(255, 255, 255, 0.6); height: 0; }
 .sw.oh { background: var(--oh); height: 4px; }
+.sw.real { background: #ff4fd8; height: 4px; }
 .sw.ug { height: 0; border-top: 4px dashed var(--ug); }
 .legend div { display: flex; gap: 8px; align-items: center; padding: 2px 0; }
 
@@ -98,3 +99,4 @@ button.primary:hover { filter: brightness(1.1); }
   #panel { top: auto; left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 50vh; }
   .cesium-viewer-bottom { left: 0; }
 }
+.cmp td { white-space: nowrap; }

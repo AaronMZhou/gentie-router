@@ -28,6 +28,9 @@
         <button id="btnReset">Reset</button>
         <button id="btnDemo" class="primary">Load demo route</button>
       </div>
+      <div class="buttons" style="margin-top:8px">
+        <button id="btnValidate">Compare to real line</button>
+      </div>
     </section>
 
     <section id="layers">
@@ -38,6 +41,16 @@
       <label><input type="checkbox" id="tglTribal"> Tribal land <span class="sw tribal"></span></label>
       <label><input type="checkbox" id="tglLines" checked> Existing power lines <span class="sw line"></span></label>
       <label><input type="checkbox" id="tglBaseline" checked> Straight-line baseline <span class="sw base"></span></label>
+    </section>
+
+    <section id="validation" hidden>
+      <h2>Validation vs. real line</h2>
+      <div id="valLabel" class="muted"></div>
+      <table class="cmp">
+        <thead><tr><th></th><th>Mean dist</th><th>&le;500 m</th><th>Length</th></tr></thead>
+        <tbody id="valRows"></tbody>
+      </table>
+      <div id="valNote" class="note"></div>
     </section>
 
     <section id="results" hidden>
@@ -84,6 +97,7 @@
     <section class="legend">
       <div><span class="sw oh"></span> Overhead (towers every ~300 m)</div>
       <div><span class="sw ug"></span> Underground</div>
+      <div><span class="sw real"></span> Real existing line (validation)</div>
       <p class="muted small">Costs are rough planning assumptions ($2M/mi overhead, $10M/mi underground,
         scaled by slope, wildfire tier, corridors &amp; land status). Not an engineering estimate.</p>
     </section>
