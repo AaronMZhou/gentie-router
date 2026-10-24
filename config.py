@@ -153,7 +153,8 @@ PRESETS = {
                  "overrides": {}},
     "avoid_fire": {"label": "Avoid fire", "blurb": "Weights overhead line in high wildfire hazard and HFTD Tier 3 much more heavily.",
                    "overrides": {"OH_FIRE_RISK_MAX_MULT": 10.0, "OH_FIRE_TIER_MULT": {0: 1.0, 1: 1.0, 2: 2.0, 3: 5.0}}},
-    "cheapest": {"label": "Cheapest build", "blurb": "Lighter fire and managed-land weights; protected and tribal penalties kept.",
+    "cheapest": {"label": "Direct", "blurb": "Lighter fire and managed-land weighting: the shortest practical path. "
+                                             "Protected and tribal penalties kept.",
                  "overrides": {"MANAGED_LAND_MULT": 1.0, "OH_FIRE_RISK_MAX_MULT": 1.5,
                                "OH_FIRE_TIER_MULT": {0: 1.0, 1: 1.0, 2: 1.1, 3: 1.2}}},
     "underground": {"label": "Prefer underground", "blurb": "Searches as if burial cost ~$4M/mi, so the route favours undergrounding.",

@@ -313,6 +313,7 @@ class Router:
            whole 31 x 30 km grid); if the path touches the window edge the window may have
            constrained it, so re-run on the full grid.
         Move costs are symmetric, so a tree rooted at either end gives the same optimal cost."""
+        self._search_grid(preset)  # validates + builds on first use (direct callers skip route())
         trees = self.trees[preset]
         if use_trees and e_rc in trees:
             self.tree_hits += 1
