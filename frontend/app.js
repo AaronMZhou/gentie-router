@@ -44,12 +44,13 @@
     terrain.errorEvent.addEventListener(() => resolve());
   });
 
-  // render quality: full device resolution, 4x MSAA, sharper terrain/imagery near the camera
-  viewer.useBrowserRecommendedResolution = false;
-  scene.msaaSamples = 4;
-  globe.maximumScreenSpaceError = 1.33;
+  // Adaptive render quality (applyQuality): full quality when the camera is still, a light profile
+  // while it moves.  Measured on an Intel UHD iGPU at 2x DPR while panning: full device resolution
+  // + 4x MSAA + HDR + shadows = 6.8 fps; CSS resolution + FXAA, no HDR/shadows = 38 fps.
+  // Render-on-demand: no frames are drawn while nothing changes (idle GPU ~0%).
+  scene.requestRenderMode = true;
+  scene.maximumRenderTimeChange = Infinity;
   globe.tileCacheSize = 1000;
-  scene.highDynamicRange = true;
   viewer.shadowMap.softShadows = true;
   viewer.shadowMap.maximumDistance = 20000;
   viewer.shadowMap.size = 4096;
@@ -147,6 +148,7 @@
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
       },
     });
+    redraw();
   }
 
   // Small lattice-tower glyph for overhead structures.
@@ -170,6 +172,7 @@
         material: new Cesium.PolylineDashMaterialProperty({ color: COLORS.bbox, dashLength: 24 }),
       },
     });
+    redraw();
   }
 
   // Tilted view of a lon/lat box, nudged so it sits right of the side panel.
@@ -196,7 +199,7 @@
     const r = state.route;
     if (!r) return homeView(duration);
     if (state.view === "enhanced") { // side-on and low: look across the terrain at the line
-      frameBox(r.box, duration, { heading: bearingOf(r.start, r.end) + Math.PI / 2, pitchDeg: -30, rangeFactor: 1.3 });
+      frameBox(r.box, duration, { heading: bearingOf(r.start, r.end) + Math.PI / 2, pitchDeg: -30, rangeFactor: 2.8 });
     } else {
       frameBox(r.box, duration);
     }
@@ -265,6 +268,7 @@
         riskLayer = viewer.imageryLayers.addImageryProvider(provider);
       }
       if (riskLayer) riskLayer.show = on;
+      redraw();
     } catch (err) {
       toast("Could not load wildfire hazard overlay (backend offline?)");
     }
@@ -274,6 +278,7 @@
     try {
       const ds = on ? await loadOverlay(name) : overlays[name];
       if (ds) ds.show = on;
+      redraw();
     } catch (err) {
       toast(`Could not load ${name} overlay (backend offline?)`);
     }
@@ -282,17 +287,39 @@
   const contourMaterial = Cesium.Material.fromType("ElevationContour", {
     color: Cesium.Color.WHITE.withAlpha(0.18), spacing: 100, width: 1.0,
   });
-  const toggleContours = (on) => (globe.material = on ? contourMaterial : undefined);
+  const toggleContours = (on) => { globe.material = on ? contourMaterial : undefined; redraw(800); };
 
   // ------------------------------------------------------------------ view modes
   // Top View: flat, high, steep (good for picking points).  Enhanced: 1.5x terrain, sun + shadows,
   // low oblique camera, 3D towers and conductors.
+  function applyQuality() {
+    const enh = state.view === "enhanced", fast = state.moving || state.flying;
+    viewer.useBrowserRecommendedResolution = fast; // still: full device resolution
+    scene.msaaSamples = fast ? 1 : 4;
+    scene.postProcessStages.fxaa.enabled = fast;   // cheap edge smoothing instead of MSAA
+    scene.highDynamicRange = enh && !fast;
+    viewer.shadows = enh && !fast;                 // the shadow map re-renders on every camera move
+    viewer.terrainShadows = enh && !fast ? Cesium.ShadowMode.ENABLED : Cesium.ShadowMode.DISABLED;
+    globe.maximumScreenSpaceError = fast ? 2 : 1.33;
+    scene.requestRender();
+  }
+  viewer.camera.moveStart.addEventListener(() => { state.moving = true; applyQuality(); });
+  viewer.camera.moveEnd.addEventListener(() => { state.moving = false; applyQuality(); });
+
+  // Render-on-demand doesn't notice async work finishing (ground polylines, overlays, tiles for
+  // newly added entities), so request frames for a short while after changing the scene.
+  function redraw(ms = 2500) {
+    const until = performance.now() + ms;
+    const pump = () => { scene.requestRender(); if (performance.now() < until) setTimeout(pump, 120); };
+    pump();
+  }
+
   function applyView(reframe = true) {
     const enh = state.view === "enhanced";
     scene.verticalExaggeration = enh ? ENH_EXAGGERATION : 1;
     globe.enableLighting = enh;
-    viewer.shadows = enh;
-    viewer.terrainShadows = enh ? Cesium.ShadowMode.ENABLED : Cesium.ShadowMode.DISABLED;
+    applyQuality();
+    redraw();
     layers.routeTop.show = !enh;
     layers.routeEnh.show = layers.hardware.show = enh;
     $("vTop").classList.toggle("on", !enh);
@@ -309,6 +336,7 @@
     for (const ds of [layers.route, layers.routeTop, layers.routeEnh, layers.hardware, layers.baseline]) ds.entities.removeAll();
     $("results").hidden = true;
     $("validation").hidden = true;
+    redraw(600);
   }
 
   function reset() {
@@ -412,6 +440,7 @@
     updateSteps();
     renderPanel(props, fc.features, isDemo);
     buildHardware(state.routeSeq);
+    redraw();
 
     if (Number.isFinite(box[0])) frameRoute(1.6);
   }
@@ -459,6 +488,7 @@
       }
     }
     ents.resumeEvents();
+    redraw();
   }
 
   // ------------------------------------------------------------------ fly-through
@@ -504,15 +534,9 @@
 
     const km = (N - 1) * STEP / 1000;
     const duration = Math.min(Math.max(km * 3, 20), 60); // seconds
-    // Measured on an Intel UHD iGPU: MSAA and HDR dominate per-frame cost while moving
-    // (24 fps -> ~40 fps without them); lighting and the 3D hardware are cheap, so they stay.
-    const prev = { msaa: scene.msaaSamples, sse: globe.maximumScreenSpaceError, hdr: scene.highDynamicRange };
-    viewer.shadows = false; // the shadow map re-renders every frame while the camera moves
-    viewer.terrainShadows = Cesium.ShadowMode.DISABLED;
-    scene.msaaSamples = 1;
-    scene.postProcessStages.fxaa.enabled = true; // cheap edge smoothing instead of MSAA
-    scene.highDynamicRange = false;
-    globe.maximumScreenSpaceError = 3;
+    state.flying = true;
+    applyQuality();                // light profile for the whole flight
+    scene.requestRenderMode = false; // the camera is driven from preRender, so render every frame
 
     const t0 = performance.now();
     const tick = () => {
@@ -529,7 +553,7 @@
       if (u >= 1) stopFly();
     };
     scene.preRender.addEventListener(tick);
-    fly = { tick, prev };
+    fly = { tick };
     $("btnFly").textContent = "■ Stop fly-through";
     setStatus(`Flying along the route (${Math.round(duration)} s) — click or Esc to stop.`);
   }
@@ -537,13 +561,10 @@
   function stopFly() {
     if (!fly) return;
     scene.preRender.removeEventListener(fly.tick);
-    viewer.shadows = state.view === "enhanced";
-    viewer.terrainShadows = state.view === "enhanced" ? Cesium.ShadowMode.ENABLED : Cesium.ShadowMode.DISABLED;
-    scene.msaaSamples = fly.prev.msaa;
-    scene.postProcessStages.fxaa.enabled = false;
-    scene.highDynamicRange = fly.prev.hdr;
-    globe.maximumScreenSpaceError = fly.prev.sse;
     fly = null;
+    state.flying = false;
+    scene.requestRenderMode = true;
+    applyQuality();
     $("btnFly").textContent = "▶ Fly along route";
     setStatus("");
   }
@@ -672,6 +693,7 @@
         clampToGround: true, width: 4, material: COLORS.real.withAlpha(0.9),
       },
     });
+    redraw();
     $("validation").hidden = false;
     $("valLabel").textContent = `${c.label} (${valIndex + 1}/${validation.cases.length}, real line ${c.metrics.real_km} km)`;
     const row = (name, m) => `<tr><td>${name}</td><td>${m.mean_dist_m} m</td><td>${m.pct_within_500m.toFixed(0)}%</td><td>${m.route_km} km</td></tr>`;
@@ -778,7 +800,7 @@
   $("tglProtected").onchange = (e) => toggleOverlay("protected", e.target.checked);
   $("tglTribal").onchange = (e) => toggleOverlay("tribal", e.target.checked);
   $("tglLines").onchange = (e) => toggleOverlay("powerlines", e.target.checked);
-  $("tglBaseline").onchange = (e) => (layers.baseline.show = e.target.checked);
+  $("tglBaseline").onchange = (e) => { layers.baseline.show = e.target.checked; redraw(600); };
   $("tglContours").onchange = (e) => toggleContours(e.target.checked);
   $("vTop").onclick = () => { if (state.view !== "top") { stopFly(); state.view = "top"; applyView(); } };
   $("vEnh").onclick = () => { if (state.view !== "enhanced") { stopFly(); state.view = "enhanced"; applyView(); } };

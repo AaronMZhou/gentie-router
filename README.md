@@ -70,7 +70,8 @@ Open **http://localhost:8000**. The backend serves the frontend too, so this one
 - **View modes**, switched at the top of the panel; the app remembers your choice:
   - **Enhanced** (default): terrain exaggerated 1.5×, early-afternoon sun with shading and shadows, and a low oblique camera. Within about 9 km, overhead lines appear as **3D poles with crossarms and three sagging conductors**, with the orange trace running tower to tower beneath them.
   - **Top View**: flat terrain, steep overview, and flat tower icons. Useful for picking points precisely.
-- **▶ Fly along route** flies the camera along the line in 20–60 s. Click or press Esc to stop. During the flight, MSAA anti-aliasing, HDR and terrain shadows are relaxed; on an Intel UHD integrated GPU that roughly doubled the frame rate (about 18 → 37 fps).
+- **▶ Fly along route** flies the camera along the line in 20–60 s. Click or press Esc to stop.
+- **Adaptive quality:** while the camera moves (drag, zoom, look-around, fly-through) the app renders a light profile: CSS-pixel resolution, FXAA instead of 4× MSAA, no HDR or shadows. It snaps back to full quality the moment the camera stops. When nothing changes it renders no frames at all (Cesium `requestRenderMode`), so the GPU idles. Measured while panning in Enhanced view on an Intel UHD integrated GPU at 2× display scaling: about 11 fps before, about 100 fps after.
 - **Mouse:** left-drag pans, **right-drag looks around** from where you are, the wheel zooms, Ctrl- or middle-drag tilts. Hovering shows the elevation under the cursor.
 - Overhead segments are solid orange, underground segments are dashed cyan, and the straight baseline is a faint white line. The elevation profile shows total climb and descent.
 - Toggles: wildfire hazard (USFS WHP, draped image), HFTD/FHSZ tiers, protected land, tribal land, existing power lines, baseline, and 100 m elevation contours (off by default). **Reset** (or Esc) clears the route.
