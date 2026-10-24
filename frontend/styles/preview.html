@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gen-tie Router · Styles</title>
+  <link rel="icon" href="data:,">
+  <!-- head snippet: theme (no flash) + boot/error contract. Keep in sync with STYLES.md -->
+  <script>
+    (function () {
+      var d = document.documentElement, t;
+      try { t = localStorage.getItem("gentie.theme"); } catch (e) {}
+      if (t !== "dark" && t !== "light") t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      d.dataset.theme = t;
+      window.addEventListener("error", function (e) { d.dataset.errors = (d.dataset.errors || "") + e.message + "|"; });
+      window.addEventListener("unhandledrejection", function (e) { d.dataset.errors = (d.dataset.errors || "") + (e.reason && e.reason.message || String(e.reason)) + "|"; });
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500&family=Geist:wght@300;400;500&display=swap">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="components.css">
+  <style>
+    /* gallery-only layout */
+    .gallery { display: grid; grid-template-columns: 1fr; }
+    @media (min-width: 1400px) { .gallery { grid-template-columns: 1fr 1fr; } .gallery > section + section { border-left: 1px solid var(--line); } }
+    .gallery > section { padding: var(--s-7) var(--s-6); display: flex; flex-direction: column; gap: var(--s-7); min-width: 0; }
+    .demo > .mono-label:first-child { display: block; margin-bottom: var(--s-3); color: var(--acc2); }
+    .row { display: flex; gap: var(--s-3); flex-wrap: wrap; align-items: center; }
+    .demo .modal, .demo .toast { position: static; transform: none; margin: 0; }
+  </style>
+</head>
+<body>
+  <nav class="nav-top">
+    <a class="logo" href="../index.html"><i></i>Gen-tie Router <span class="mono-label crumb">/ Styles</span></a>
+    <button class="theme-toggle" type="button"></button>
+  </nav>
+
+  <div class="gallery">
+    <section data-theme="dark" aria-label="Dark theme"></section>
+    <section data-theme="light" aria-label="Light theme"></section>
+  </div>
+
+  <template id="components">
+    <div class="demo"><span class="mono-label">Type</span>
+      <h1 class="display display--hero">Know the <span class="it acc">whole line</span><br>before you file.</h1>
+      <h2 class="display display--1" style="margin-top:var(--s-5)">Ridge <span class="it acc">route</span></h2>
+      <h3 class="display display--3" style="margin:var(--s-3) 0">Bill of <span class="it">materials</span></h3>
+      <p class="lead">Draft transmission routes and see what each one really costs before a single filing goes to the feds.</p>
+      <p style="margin-top:var(--s-3)">Body text in Geist 300. <span class="muted">Muted secondary text.</span> <span class="acc">Accent</span> · <span class="acc2">Warning accent</span></p>
+      <div class="mono-label" style="margin-top:var(--s-3)"><span class="dot"></span>&nbsp; Mono label · live</div>
+    </div>
+
+    <div class="demo"><span class="mono-label">Buttons &amp; pills</span>
+      <div class="row">
+        <button class="btn btn--fill" type="button">Start a project →</button>
+        <button class="btn" type="button">Watch a route get built</button>
+        <button class="btn btn--sm" type="button">▶ Fly along</button>
+        <button class="btn" type="button" disabled>Disabled</button>
+        <button class="theme-toggle" type="button" aria-label="Theme toggle (demo)">◐ Dark</button>
+      </div>
+      <div class="row" style="margin-top:var(--s-4)">
+        <span class="pill">Drafting</span><span class="pill pill--blue">Comparing</span>
+        <span class="pill pill--warn">Permit risk</span><span class="pill pill--ok">Ready to file</span>
+        <span>$5.4M <span class="est" title="Placeholder estimate, not a real model">est.</span></span>
+      </div>
+    </div>
+
+    <div class="demo"><span class="mono-label">Tabs</span>
+      <nav class="tabs" aria-label="Route sections">
+        <a href="#overview" class="is-active" aria-current="true">Overview</a><a href="#inventory">Inventory</a><a href="#costs">Costs</a><a href="#maintenance">Maintenance</a><a href="#permits">Permits &amp; legal</a>
+      </nav>
+    </div>
+
+    <div class="demo"><span class="mono-label">Side nav</span>
+      <aside class="side" style="width:230px;min-height:0;border:1px solid var(--line);border-radius:var(--r-md)">
+        <a class="is-active" href="#">Projects <span class="mono-label">4</span></a><a href="#">Routes <span class="mono-label">11</span></a><a href="#">Permits</a>
+      </aside>
+    </div>
+
+    <div class="demo"><span class="mono-label">KPI strip</span>
+      <div class="kpis">
+        <div><div class="mono-label">Active projects</div><div class="n">4</div></div>
+        <div><div class="mono-label">Routes in study</div><div class="n">11</div></div>
+        <div><div class="mono-label">Portfolio capex</div><div class="n">$1.42B</div></div>
+        <div><div class="mono-label">Next filing</div><div class="n it acc2">Dec 12</div></div>
+      </div>
+    </div>
+
+    <div class="demo"><span class="mono-label">Project cards</span>
+      <div class="pgrid">
+        <a class="pcard" href="#">
+          <div class="thumb grid-bg"><svg viewBox="0 0 300 150" width="100%" height="100%" aria-hidden="true">
+            <path d="M30 120 C90 90 140 70 270 30" stroke="var(--route-1)" stroke-width="2" fill="none"/>
+            <path d="M30 120 C90 90 140 70 270 30" stroke="var(--text)" stroke-width="1.5" fill="none" class="flow"/>
+            <path d="M30 120 C120 120 190 80 270 30" stroke="var(--route-2)" stroke-width="1.2" stroke-dasharray="4 4" fill="none"/>
+            <path d="M30 120 C70 60 200 70 270 30" stroke="var(--route-3)" fill="none" opacity=".6"/></svg></div>
+          <div class="body">
+            <div class="top"><span class="pill pill--blue">Comparing</span><span class="mono-label">3 routes</span></div>
+            <h4>Ramona Solar <span class="it">Gen-tie</span></h4>
+            <div class="meta"><div class="mono-label">Capex<b>$386M</b></div><div class="mono-label">Voltage<b>230 kV</b></div><div class="mono-label">Length<b>21 mi</b></div></div>
+            <div class="bar"><i style="width:50%"></i></div>
+          </div>
+        </a>
+        <button class="pcard pcard--new" type="button"><span><span class="display it" style="font-size:40px">+</span><span class="mono-label" style="display:block;margin-top:8px">Start a project</span></span></button>
+      </div>
+    </div>
+
+    <div class="demo"><span class="mono-label">Route cards</span>
+      <div class="rail">
+        <div class="rcard is-selected" tabindex="0" role="button" aria-pressed="true">
+          <div class="top"><span class="pill pill--blue">Recommended</span><div class="score acc">82 <span class="est" title="Placeholder score">est.</span></div></div>
+          <h5>Route 1 · <span class="it">Ridge</span></h5>
+          <div class="mm"><div>Upfront<b>$386M</b></div><div>Upkeep/yr<b>$5.4M <span class="est" title="Placeholder estimate">est.</span></b></div><div>Energize<b>Q3 2031 <span class="est" title="Placeholder estimate">est.</span></b></div><div>Length<b>21.4 mi</b></div><div>Towers<b>112</b></div><div>Permits<b>6</b></div></div>
+          <div class="risk">▲ 4.2 mi through fire tier 3</div>
+        </div>
+        <div class="rcard" tabindex="0" role="button" aria-pressed="false">
+          <div class="top"><span class="pill">Cheapest build</span><div class="score">74</div></div>
+          <h5>Route 2 · <span class="it">SR-78 corridor</span></h5>
+          <div class="mm"><div>Upfront<b>$341M</b></div><div>Upkeep/yr<b>$7.9M</b></div><div>Energize<b>Q1 2032</b></div><div>Length<b>24.8 mi</b></div><div>Towers<b>131</b></div><div>Permits<b>9</b></div></div>
+          <div class="risk">▲ 47 parcels, 3 Caltrans encroachments</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo"><span class="mono-label">Map overlays: HUD, badge, legend</span>
+      <div class="mapwrap grid-bg" style="height:260px">
+        <div class="hud mapbadge"><div class="mono-label">Ramona → Creelman · 230 kV</div><div class="display" style="font-size:28px;margin-top:4px">3 candidate <span class="it">routes</span></div></div>
+        <div class="hud" style="right:20px;top:20px"><div class="mono-label">3D terrain · Cesium</div><div style="margin-top:6px">Elevation 420–1,180 m</div></div>
+        <div class="hud hud--alert" style="right:20px;top:110px"><div class="mono-label acc2">Segment 7</div><div>Fire tier 3 · 1.8 mi</div></div>
+        <div class="hud maplegend">
+          <span><i style="background:var(--route-1)"></i>Route 1 · Ridge</span><span><i style="background:var(--route-2)"></i>Route 2</span>
+          <span><i style="background:var(--route-3)"></i>Route 3</span><span><i style="background:var(--route-4)"></i>Route 4</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo"><span class="mono-label">Bento: donut, inventory, Gantt, permits</span>
+      <div class="bento">
+        <div class="cell" style="grid-column:span 6"><div class="mono-label">Upfront cost</div><h6>Where the <span class="it">$386M</span> goes</h6>
+          <div class="donut" style="--a:44%;--b:63%;--c:81%"></div>
+          <div class="lg"><span><span><i style="background:var(--series-1)"></i>Towers &amp; foundations</span>$170M</span><span><span><i style="background:var(--series-2)"></i>Right-of-way</span>$73M</span><span><span><i style="background:var(--series-3)"></i>Conductor</span>$69M</span><span><span><i style="background:var(--series-4)"></i>Permits, eng.</span>$74M</span></div>
+        </div>
+        <div class="cell" style="grid-column:span 6"><div class="mono-label">Inventory</div><h6>Bill of <span class="it">materials</span></h6>
+          <table class="inv"><tr><td>Lattice towers</td><td>112</td></tr><tr><td>Conductor (ACSR Drake)</td><td>207 km</td></tr><tr><td>OH/UG transitions</td><td>0</td></tr></table>
+          <div class="risk" style="margin-top:14px">▲ Conductor lead time 58 wks <span class="est" title="Placeholder lead time">est.</span></div>
+        </div>
+        <div class="cell" style="grid-column:span 7"><div class="mono-label">Deployment calendar</div><h6>Energized by <span class="it acc2">Q3 2031</span></h6>
+          <div class="gantt">
+            <span></span><div class="years mono-label"><span>2027</span><span>2029</span><span>2031</span></div>
+            <span>Federal route filing</span><div class="track"><i style="left:0;width:12%"></i></div>
+            <span>NEPA review</span><div class="track"><i class="o" style="left:8%;width:38%"></i></div>
+            <span>Construction</span><div class="track"><i class="g" style="left:58%;width:34%"></i></div>
+          </div>
+        </div>
+        <div class="cell" style="grid-column:span 5"><div class="mono-label">Permits &amp; legal</div><h6>3 <span class="it">triggers</span></h6>
+          <div class="permit"><span>NEPA (federal nexus)</span><span class="pill pill--warn">14–20 mo</span></div>
+          <div class="permit"><span>County encroachment</span><span class="pill">2 mo</span></div>
+          <div class="permit"><span>Tribal consultation</span><span class="pill pill--ok">Not triggered</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo"><span class="mono-label">Empty / error state</span>
+      <div class="empty-state">
+        <div class="display display--3">Backend <span class="it">unreachable</span></div>
+        <p class="muted">Couldn't load your projects. Is the server running?</p>
+        <button class="btn" type="button">Retry</button>
+      </div>
+    </div>
+
+    <div class="demo"><span class="mono-label">Modal &amp; toast</span>
+      <dialog class="modal" open>
+        <form method="dialog">
+          <div class="mono-label">New project</div>
+          <h3 class="display display--3">Name your <span class="it">line</span></h3>
+          <label class="field"><span class="mono-label">Name</span><input name="name" value="Ramona Solar Gen-tie"></label>
+          <label class="field"><span class="mono-label">Voltage</span><select name="kv"><option>69 kV</option><option selected>138 kV</option><option>230 kV</option></select></label>
+          <div class="actions"><button class="btn" value="cancel">Cancel</button><button class="btn btn--fill" value="ok">Create</button></div>
+        </form>
+      </dialog>
+      <div class="row" style="margin-top:var(--s-4)">
+        <div class="toast" role="status">Please click inside the study region.</div>
+        <div class="toast toast--error" role="alert">Routing failed: backend offline.</div>
+      </div>
+    </div>
+  </template>
+
+  <script type="module">
+    import { initThemeToggle, cssVar } from "../js/theme.js";
+    const tpl = document.getElementById("components");
+    document.querySelectorAll(".gallery > section").forEach((s) => s.append(tpl.content.cloneNode(true)));
+    initThemeToggle(document.querySelector(".nav-top .theme-toggle"));
+    if (!cssVar("--acc")) throw new Error("tokens.css not loaded");
+    document.documentElement.dataset.ready = "1";
+  </script>
+</body>
+</html>
