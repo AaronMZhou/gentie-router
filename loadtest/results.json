@@ -1,0 +1,244 @@
+{
+  "meta": {
+    "when_utc": "2026-10-24T17:06:40+00:00",
+    "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+    "logical_cpus": 32,
+    "physical_cores": 24,
+    "python": "3.13.12",
+    "note": "Locust and the server share the machine; closed-loop users with zero think time."
+  },
+  "results": [
+    {
+      "requests": 291,
+      "failures": 0,
+      "rps": 7.4,
+      "p50_ms": 4000,
+      "p95_ms": 6900,
+      "p99_ms": 8600,
+      "cache": null,
+      "server_rss_mb": 169,
+      "label": "before: sync endpoint \u2014 unique routes to substations",
+      "users": 32,
+      "seconds": 40,
+      "load": {
+        "LOAD_REPEAT_FRACTION": "0"
+      },
+      "server_env": {}
+    },
+    {
+      "requests": 333,
+      "failures": 0,
+      "rps": 8.5,
+      "p50_ms": 3600,
+      "p95_ms": 5700,
+      "p99_ms": 6700,
+      "cache": null,
+      "server_rss_mb": 167,
+      "label": "before: sync endpoint \u2014 unique arbitrary routes",
+      "users": 32,
+      "seconds": 40,
+      "load": {
+        "LOAD_REPEAT_FRACTION": "0",
+        "LOAD_ARBITRARY_END": "1"
+      },
+      "server_env": {}
+    },
+    {
+      "requests": 3948,
+      "failures": 0,
+      "rps": 100.7,
+      "p50_ms": 300,
+      "p95_ms": 450,
+      "p99_ms": 550,
+      "cache": {
+        "size": 0,
+        "maxsize": 0,
+        "hits": 0,
+        "misses": 4018,
+        "coalesced": 0,
+        "hit_rate": 0.0,
+        "inflight": 12
+      },
+      "server_rss_mb": 280,
+      "label": "async + 1 workers \u2014 unique routes to substations",
+      "users": 32,
+      "seconds": 40,
+      "load": {
+        "LOAD_REPEAT_FRACTION": "0"
+      },
+      "server_env": {
+        "ROUTE_WORKERS": "1",
+        "ROUTE_CACHE_SIZE": "0"
+      }
+    },
+    {
+      "requests": 15169,
+      "failures": 0,
+      "rps": 388.4,
+      "p50_ms": 80,
+      "p95_ms": 110,
+      "p99_ms": 130,
+      "cache": {
+        "size": 0,
+        "maxsize": 0,
+        "hits": 0,
+        "misses": 15437,
+        "coalesced": 0,
+        "hit_rate": 0.0,
+        "inflight": 0
+      },
+      "server_rss_mb": 840,
+      "label": "async + 4 workers \u2014 unique routes to substations",
+      "users": 32,
+      "seconds": 40,
+      "load": {
+        "LOAD_REPEAT_FRACTION": "0"
+      },
+      "server_env": {
+        "ROUTE_WORKERS": "4",
+        "ROUTE_CACHE_SIZE": "0"
+      }
+    },
+    {
+      "requests": 25227,
+      "failures": 0,
+      "rps": 646.2,
+      "p50_ms": 48,
+      "p95_ms": 63,
+      "p99_ms": 100,
+      "cache": {
+        "size": 0,
+        "maxsize": 0,
+        "hits": 0,
+        "misses": 25532,
+        "coalesced": 0,
+        "hit_rate": 0.0,
+        "inflight": 0
+      },
+      "server_rss_mb": 1585,
+      "label": "async + 8 workers \u2014 unique routes to substations",
+      "users": 32,
+      "seconds": 40,
+      "load": {
+        "LOAD_REPEAT_FRACTION": "0"
+      },
+      "server_env": {
+        "ROUTE_WORKERS": "8",
+        "ROUTE_CACHE_SIZE": "0"
+      }
+    },
+    {
+      "requests": 23044,
+      "failures": 0,
+      "rps": 589.4,
+      "p50_ms": 41,
+      "p95_ms": 170,
+      "p99_ms": 240,
+      "cache": {
+        "size": 0,
+        "maxsize": 0,
+        "hits": 0,
+        "misses": 23500,
+        "coalesced": 0,
+        "hit_rate": 0.0,
+        "inflight": 0
+      },
+      "server_rss_mb": 3063,
+      "label": "async + 16 workers \u2014 unique routes to substations",
+      "users": 32,
+      "seconds": 40,
+      "load": {
+        "LOAD_REPEAT_FRACTION": "0"
+      },
+      "server_env": {
+        "ROUTE_WORKERS": "16",
+        "ROUTE_CACHE_SIZE": "0"
+      }
+    },
+    {
+      "requests": 3161,
+      "failures": 0,
+      "rps": 80.7,
+      "p50_ms": 370,
+      "p95_ms": 540,
+      "p99_ms": 1300,
+      "cache": {
+        "size": 0,
+        "maxsize": 0,
+        "hits": 0,
+        "misses": 3235,
+        "coalesced": 0,
+        "hit_rate": 0.0,
+        "inflight": 17
+      },
+      "server_rss_mb": 1768,
+      "label": "async + 8 workers \u2014 unique arbitrary routes",
+      "users": 32,
+      "seconds": 40,
+      "load": {
+        "LOAD_REPEAT_FRACTION": "0",
+        "LOAD_ARBITRARY_END": "1"
+      },
+      "server_env": {
+        "ROUTE_WORKERS": "8",
+        "ROUTE_CACHE_SIZE": "0"
+      }
+    },
+    {
+      "requests": 3153,
+      "failures": 0,
+      "rps": 80.4,
+      "p50_ms": 320,
+      "p95_ms": 1000,
+      "p99_ms": 1400,
+      "cache": {
+        "size": 0,
+        "maxsize": 0,
+        "hits": 0,
+        "misses": 3238,
+        "coalesced": 0,
+        "hit_rate": 0.0,
+        "inflight": 3
+      },
+      "server_rss_mb": 3086,
+      "label": "async + 16 workers \u2014 unique arbitrary routes",
+      "users": 32,
+      "seconds": 40,
+      "load": {
+        "LOAD_REPEAT_FRACTION": "0",
+        "LOAD_ARBITRARY_END": "1"
+      },
+      "server_env": {
+        "ROUTE_WORKERS": "16",
+        "ROUTE_CACHE_SIZE": "0"
+      }
+    },
+    {
+      "requests": 107240,
+      "failures": 0,
+      "rps": 2746.2,
+      "p50_ms": 7,
+      "p95_ms": 35,
+      "p99_ms": 43,
+      "cache": {
+        "size": 1024,
+        "maxsize": 1024,
+        "hits": 87105,
+        "misses": 21859,
+        "coalesced": 30,
+        "hit_rate": 0.799,
+        "inflight": 0
+      },
+      "server_rss_mb": 1601,
+      "label": "async + 8 workers + cache \u2014 80% repeated routes",
+      "users": 32,
+      "seconds": 40,
+      "load": {
+        "LOAD_REPEAT_FRACTION": "0.8"
+      },
+      "server_env": {
+        "ROUTE_WORKERS": "8"
+      }
+    }
+  ]
+}

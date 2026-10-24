@@ -101,12 +101,12 @@ def main():
     no_cache = lambda w: {"ROUTE_WORKERS": str(w), "ROUTE_CACHE_SIZE": "0"}
     plan = []
     if args.baseline_dir:
-        plan += [("before: sync endpoint | unique routes to substations", args.baseline_dir, {}, to_sub),
-                 ("before: sync endpoint | unique arbitrary routes", args.baseline_dir, {}, arbitrary)]
+        plan += [("before: sync endpoint — unique routes to substations", args.baseline_dir, {}, to_sub),
+                 ("before: sync endpoint — unique arbitrary routes", args.baseline_dir, {}, arbitrary)]
     workers = [8] if args.quick else [1, 4, 8, 16]
-    plan += [(f"async + {w} workers | unique routes to substations", ROOT, no_cache(w), to_sub) for w in workers]
-    plan += [(f"async + {w} workers | unique arbitrary routes", ROOT, no_cache(w), arbitrary) for w in ([8] if args.quick else [8, 16])]
-    plan.append(("async + 8 workers + cache | 80% repeated routes", ROOT, {"ROUTE_WORKERS": "8"}, {"LOAD_REPEAT_FRACTION": "0.8"}))
+    plan += [(f"async + {w} workers — unique routes to substations", ROOT, no_cache(w), to_sub) for w in workers]
+    plan += [(f"async + {w} workers — unique arbitrary routes", ROOT, no_cache(w), arbitrary) for w in ([8] if args.quick else [8, 16])]
+    plan.append(("async + 8 workers + cache — 80% repeated routes", ROOT, {"ROUTE_WORKERS": "8"}, {"LOAD_REPEAT_FRACTION": "0.8"}))
 
     results = [bench(label, cwd, env, u, t, load, tmp) for label, cwd, env, load in plan]
     meta = {"when_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
