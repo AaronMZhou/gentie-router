@@ -106,14 +106,128 @@ What this shows:
 
 ## API
 
-`POST /route` with `{"start": [lon, lat], "end": [lon, lat]}` returns a GeoJSON `FeatureCollection`:
+Interactive docs: `http://localhost:8000/docs`. Other endpoints:
 
-- One `LineString` per segment: `kind: "segment"`, `mode` (`overhead` | `underground`), `length_km`, `est_cost_usd`, `cost_per_mile_usd`, `high_fire_km`
-- A `MultiPoint` with `kind: "towers"` (overhead structures every ~300 m)
-- A `LineString` with `kind: "baseline"`: the straight, all-overhead line with its own `est_cost_usd`, `high_fire_km`, `protected_km`, …
-- Top-level `properties`: `total_km`, `total_cost_usd`, `overhead_km`, `underground_km`, `n_transitions`, `high_fire_km`, `overhead_high_fire_km`, `protected_cells_crossed`, `protected_km`, `baseline`, `savings_vs_baseline_usd`, `profile` (distance, elevation, mode), `synthetic_layers`, `compute_ms`
+- `GET /bounds`: region bbox, centre, grid, data provenance, `synthetic_layers`
+- `GET /overlays/{name}`: `firerisk` (PNG over the bbox), plus `fire`, `protected`, `tribal`, `powerlines`, `roads` and `substations` (GeoJSON)
+- `GET /assumptions`: every cost constant in use
+- `GET /health`
 
-Points outside the region return `400`. Other endpoints: `GET /bounds` (bbox, centre, data provenance), `GET /overlays/{fire|protected|powerlines|roads|substations}`, `GET /assumptions`, `GET /health`. Interactive docs are at `/docs`.
+### `POST /route`, schema v1.1
+
+**Request**
+
+```json
+{"start": [-116.69, 33.10], "end": [-116.85305, 33.01807]}
+```
+
+`start` and `end` are `[lon, lat]` in WGS84 and must be inside the region bbox, otherwise the API returns `400` with a `detail` message. A malformed body returns `422`.
+
+**Response:** a GeoJSON `FeatureCollection` with a top-level `properties` object.
+
+Units are fixed across the whole schema: lengths in **km**, money in **USD (integers)**, coordinates `[lon, lat]`. Every `*_est` field is a modelled estimate, not survey data. So is `row.private_parcels` whenever `private_parcels_method` starts with `"estimated"`.
+
+#### `features[]`, distinguished by `properties.kind`
+
+| `kind` | Geometry | Properties |
+|---|---|---|
+| `segment` | LineString | `index` (order along the route), `mode` (`overhead`/`underground`), `length_km`, `est_cost_usd`, `cost_per_mile_usd`, `high_fire_km`, `high_risk_km`, `mean_fire_risk` |
+| `towers` | MultiPoint | `count`: overhead structure locations (~every 300 m) |
+| `baseline` | LineString | straight all-overhead line between the same endpoints; same fields as `properties.baseline` |
+
+Segments are ordered and touch end-to-start. Adjacent segments always have different `mode`s.
+
+#### `properties.inventory`: what gets built
+
+| Field | Meaning |
+|---|---|
+| `total_km`, `overhead_km`, `underground_km` | route length by mode (`overhead_km + underground_km = total_km`) |
+| `underground_in_road_km` | underground length inside road right-of-way |
+| `tower_count` | overhead structures (one every ~300 m, plus segment ends) |
+| `transition_count` | overhead↔underground riser structures (`= number of segments − 1`) |
+| `splice_vault_count_est` | underground splice vaults, one per 550 m cable section |
+| `conductor_km_est` | overhead conductor: `overhead_km × 3 phases × 1.03 sag` |
+| `cable_km_est` | underground cable: `underground_km × 3` single-core cables |
+
+#### `properties.land`: what it crosses
+
+| Field | Meaning |
+|---|---|
+| `km_by_owner` | `{private, federal, state, local, tribal, ngo}` km. The values sum to `total_km`; land not in PAD-US counts as `private` |
+| `protected_km`, `protected_cells_crossed` | GAP 1–2 / state park / wilderness |
+| `federal_km`, `state_km`, `tribal_km`, `private_km` | shortcuts into `km_by_owner` |
+| `protected_units`, `federal_units`, `tribal_units` | `[{name, km}]`, e.g. `{"name": "Mesa Grande Reservation", "km": 0.613}` |
+| `units_crossed` | every named PAD-US unit crossed: `[{name, owner, protected (0/1/2), km}]`, longest first |
+
+#### `properties.row`: right-of-way negotiations
+
+| Field | Meaning |
+|---|---|
+| `segments` | ordered landholder runs: `[{seq, owner, unit, start_km, km, parcels}]`. `unit` is `null` for private land. Public runs have `parcels: 1` (one agreement with that agency) |
+| `segment_count` | number of runs (the same agency crossed twice counts twice) |
+| `private_parcels` | parcels crossed on private land |
+| `private_parcels_method` | `"estimated from building density"` (default) or `"real parcel polygons"` (when `data/raw/parcels.*` was provided) |
+| `public_agreements` | distinct public/tribal units crossed |
+| `landholder_negotiations_est` | `private_parcels + public_agreements` |
+
+#### `properties.permitting_triggers`: review processes the crossings trigger
+
+These are flags only, so the timeline feature decides durations. Each item is `{code, reason}`, where `reason` is a human-readable string naming the units and km.
+
+| `code` | When |
+|---|---|
+| `CEQA` | always (California project) |
+| `FEDERAL_ROW_NEPA` | `land.federal_km > 0` |
+| `TRIBAL_CONSENT` | `land.tribal_km > 0` |
+| `PROTECTED_AREA` | `land.protected_km > 0` |
+| `STATE_LANDS` | `land.state_km > 0` |
+| `HFTD` | route length in CPUC HFTD Tier 2/3 > 0 |
+| `ENCROACHMENT` | `inventory.underground_in_road_km > 0` |
+
+#### Other `properties`
+
+| Field | Meaning |
+|---|---|
+| `schema_version` | `"1.1"`. Groups and fields are only added, never renamed, within 1.x |
+| `start`, `end` | the request points |
+| `total_cost_usd`, `transition_cost_usd`, `savings_vs_baseline_usd` | estimated construction cost; routing penalties (protected/tribal) are **not** dollars |
+| `high_fire_km`, `overhead_high_fire_km` | km in HFTD Tier 2/3 (regulatory) |
+| `high_risk_km`, `overhead_high_risk_km`, `mean_fire_risk` | continuous USFS hazard (risk ≥ 0.5; mean 0–1) |
+| `baseline` | straight line: `length_km`, `est_cost_usd`, `best_mode_cost_usd`, `high_fire_km`, `high_risk_km`, `mean_fire_risk`, `protected_km`, `protected_cells_crossed`, `federal_km`, `tribal_km`, `tribal_lands_crossed`, `max_slope_deg` |
+| `profile` | `[[distance_km, elevation_m, mode], …]`, ≤ 200 samples |
+| `synthetic_layers` | input layers that were synthetic placeholders (empty with real data) |
+| `compute_ms` | server compute time |
+| *legacy flat fields* | `overhead_km`, `underground_km`, `tower_count`, `n_segments`, `n_transitions`, `protected_km`, `federal_km`, `tribal_km`, `tribal_lands_crossed`, `land_km_by_owner`, `land_units_crossed`. Kept for the v1.0 frontend; prefer the groups above |
+
+**Example** (trimmed; route from inside Mesa Grande Reservation to Creelman Sub):
+
+```json
+{
+  "type": "FeatureCollection",
+  "properties": {
+    "schema_version": "1.1",
+    "total_km": 13.62, "total_cost_usd": 38644201,
+    "inventory": {"total_km": 13.62, "overhead_km": 13.62, "underground_km": 0.0, "underground_in_road_km": 0.0,
+                  "tower_count": 46, "transition_count": 0, "splice_vault_count_est": 0,
+                  "conductor_km_est": 42.09, "cable_km_est": 0.0},
+    "land": {"km_by_owner": {"private": 13.01, "federal": 0.0, "state": 0.0, "local": 0.0, "tribal": 0.61, "ngo": 0.0},
+             "tribal_km": 0.61, "tribal_units": [{"name": "Mesa Grande Reservation", "km": 0.613}]},
+    "row": {"segment_count": 2, "private_parcels": 83, "private_parcels_method": "estimated from building density",
+            "public_agreements": 1, "landholder_negotiations_est": 84,
+            "segments": [{"seq": 0, "owner": "tribal", "unit": "Mesa Grande Reservation", "start_km": 0.0, "km": 0.61, "parcels": 1},
+                         {"seq": 1, "owner": "private", "unit": null, "start_km": 0.61, "km": 13.01, "parcels": 83}]},
+    "permitting_triggers": [{"code": "CEQA", "reason": "California project: CEQA review by the lead agency ..."},
+                            {"code": "TRIBAL_CONSENT", "reason": "Crosses 0.61 km of tribal land (Mesa Grande Reservation) ..."},
+                            {"code": "HFTD", "reason": "13.62 km in CPUC High Fire-Threat District ..."}]
+  },
+  "features": [
+    {"type": "Feature", "properties": {"kind": "segment", "index": 0, "mode": "overhead", "length_km": 13.62},
+     "geometry": {"type": "LineString", "coordinates": [[-116.7531, 33.088], [-116.7598, 33.0862]]}}
+  ]
+}
+```
+
+**Parcels:** by default `row.private_parcels` is estimated from USFS building density. Parcel area is taken as about 1/density, clamped to the range 1–160 acres, and a line crosses about 1/√area parcels per km. For real counts, download the SanGIS parcel layer under its end-user agreement, save it as `data/raw/parcels.gpkg|.shp|.geojson`, and re-run `prepare_data.py`. The pipeline de-duplicates SanGIS's stacked parcels, and `private_parcels_method` switches to `"real parcel polygons"`.
 
 ## Cost model
 
@@ -155,7 +269,7 @@ Routing uses `skimage.graph.route_through_array` (8-connected, geometric distanc
 - Wildfire Hazard Potential reflects 2020 fuels (LANDFIRE 2.2.0), so recent burn scars may score higher than their current fuel load warrants. The FHSZ SRA layer dates from 2007, and federal land gets its tier from HFTD only.
 - **Tribal land** (Barona, Santa Ysabel, Mesa Grande, Inaja and Cosmit, Capitan Grande) gets a ×10 routing penalty, so it is strongly avoided but not forbidden. It is **not** added to the dollar estimate. Any crossing is listed in `tribal_lands_crossed`, and the panel warns that it triggers tribal consultation (NHPA §106) and needs tribal consent for right-of-way (25 CFR 169). Allotted and fee land outside reservation boundaries isn't in PAD-US, so it isn't flagged.
 - The optimizer prices each cell independently. Transition costs, minimum span lengths, angle structures and tower placement are applied **after** routing, so they don't influence the path itself.
-- Not modelled: parcels/ROW acquisition, habitat and waters, visual impact, geotech, existing-line capacity, access roads, line losses, the interconnection queue.
+- Parcel count is reported but **not priced**, so the router can favour low-hazard valleys that are also the most subdivided (the demo route crosses ~108 estimated parcels). Also not modelled: habitat and waters, visual impact, geotech, existing-line capacity, access roads, line losses, the interconnection queue.
 - The 30 m grid with 8-connectivity gives stair-stepped paths. Lengths come from the simplified geometry, which is about 2–8% shorter than the raw grid path.
 - OSM coverage is uneven: only 2 tagged substations in the bbox, and some distribution lines are missing.
 - Cells outside the lon/lat bbox (the UTM grid is slightly larger) are near-impassable, so routes stay inside the box.

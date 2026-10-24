@@ -18,8 +18,36 @@ import config as C
 from backend.cost_model import MODE_NAMES, OVERHEAD, UNDERGROUND, CostGrids, build_cost_grids
 
 
+SCHEMA_VERSION = "1.1"
+
+
 class RouteError(ValueError):
     pass
+
+
+def permitting_triggers(inventory, land, high_fire_km):
+    """Review/consent processes the crossings trigger (flags only - durations are up to the caller)."""
+    names = lambda units: ", ".join(u["name"] for u in units)
+    t = [{"code": "CEQA", "reason": "California project: CEQA review by the lead agency (county for a merchant "
+                                    "gen-tie; CPUC under GO 131-D if utility-built at 50-200 kV)"}]
+    if land["federal_km"] > 0:
+        t.append({"code": "FEDERAL_ROW_NEPA", "reason": f"Crosses {land['federal_km']:.2f} km of federal land "
+                  f"({names(land['federal_units'])}): federal ROW grant/special-use permit + NEPA review"})
+    if land["tribal_km"] > 0:
+        t.append({"code": "TRIBAL_CONSENT", "reason": f"Crosses {land['tribal_km']:.2f} km of tribal land "
+                  f"({names(land['tribal_units'])}): tribal consent for ROW (25 CFR 169) + NHPA Section 106 consultation"})
+    if land["protected_km"] > 0:
+        t.append({"code": "PROTECTED_AREA", "reason": f"Crosses {land['protected_km']:.2f} km of protected land "
+                  f"({names(land['protected_units'])}): only plausible inside an existing easement"})
+    if land["state_km"] > 0:
+        t.append({"code": "STATE_LANDS", "reason": f"Crosses {land['state_km']:.2f} km of state land: state agency ROW/lease"})
+    if high_fire_km > 0:
+        t.append({"code": "HFTD", "reason": f"{high_fire_km:.2f} km in CPUC High Fire-Threat District: GO 95 HFTD "
+                  "construction rules and wildfire-mitigation review"})
+    if inventory["underground_in_road_km"] > 0:
+        t.append({"code": "ENCROACHMENT", "reason": f"{inventory['underground_in_road_km']:.2f} km of cable in road "
+                  "right-of-way: county/Caltrans encroachment permits"})
+    return t
 
 
 def _runs(modes):
@@ -179,7 +207,38 @@ class Router:
         profile = [[round(float(dist[k] / 1000), 3), round(float(self.g.elevation[rows[k], cols[k]]), 1),
                     MODE_NAMES[int(modes[k])]] for k in idx]
 
+        land = self.land_crossings(rows, cols, scaled_len)
+        ug_lengths_m = [f["properties"]["length_km"] * 1000 for f in features
+                        if f["properties"].get("kind") == "segment" and f["properties"]["mode"] == "underground"]
+        ug_road_km = scaled_len[(modes == UNDERGROUND) & ((self.g.corridor[rows, cols] & 1) > 0)].sum() / 1000
+        inventory = {
+            "total_km": round(totals["total_km"], 3),
+            "overhead_km": round(totals["overhead_km"], 3),
+            "underground_km": round(totals["underground_km"], 3),
+            "underground_in_road_km": round(float(ug_road_km), 3),
+            "tower_count": len(towers),
+            "transition_count": n_transitions,
+            "splice_vault_count_est": int(sum(max(0, int(np.ceil(L / C.SPLICE_VAULT_SPACING_M)) - 1) for L in ug_lengths_m)),
+            "conductor_km_est": round(totals["overhead_km"] * C.PHASES * C.SAG_FACTOR, 2),
+            "cable_km_est": round(totals["underground_km"] * C.PHASES, 2),
+        }
+        land_group = {
+            "km_by_owner": land["land_km_by_owner"],
+            "protected_km": round(totals["protected_km"], 3),
+            "protected_cells_crossed": int((prot == 2).sum()),
+            "federal_km": land["federal_km"],
+            "state_km": land["land_km_by_owner"]["state"],
+            "tribal_km": land["tribal_km"],
+            "private_km": land["land_km_by_owner"]["private"],
+            "protected_units": [{"name": u["name"], "km": u["km"]} for u in land["land_units_crossed"] if u["protected"] == 2],
+            "federal_units": [{"name": u["name"], "km": u["km"]} for u in land["land_units_crossed"] if u["owner"] == "federal"],
+            "tribal_units": land["tribal_lands_crossed"],
+            "units_crossed": land["land_units_crossed"],
+        }
+        row = self.row_inventory(rows, cols, scaled_len)
+
         props = {
+            "schema_version": SCHEMA_VERSION,
             "start": [float(start[0]), float(start[1])], "end": [float(end[0]), float(end[1])],
             "total_km": round(totals["total_km"], 3),
             "total_cost_usd": round(float(total_cost)),
@@ -195,8 +254,12 @@ class Router:
             "mean_fire_risk": round(float(np.average(risk, weights=scaled_len + 1e-9)), 3),
             "protected_cells_crossed": int((prot == 2).sum()),
             "protected_km": round(totals["protected_km"], 3),
-            **self.land_crossings(rows, cols, scaled_len),
+            **land,
             "tower_count": len(towers),
+            "inventory": inventory,
+            "land": land_group,
+            "row": row,
+            "permitting_triggers": permitting_triggers(inventory, land_group, totals["high_fire_km"]),
             "baseline": baseline,
             "savings_vs_baseline_usd": round(float(baseline["est_cost_usd"] - total_cost)),
             "profile": profile,
@@ -250,6 +313,52 @@ class Router:
             rr, cc = draw_line(*path[a], *path[b])
             cells.append(np.c_[rr, cc][1:])
         return np.vstack(cells)
+
+    # ------------------------------------------------------------------ right-of-way
+    def row_inventory(self, rows, cols, lengths_m):
+        """Ordered landholder runs along the route = right-of-way negotiations.
+
+        Each public run is one agreement with that agency/tribe; private runs are split into an
+        estimated number of parcels (real parcel ids if a parcel file was provided).
+        """
+        units = self.g.meta.get("land_units", [])
+        owner = self.g.owner[rows, cols]
+        key = np.where(owner > 0, self.g.landunit[rows, cols], 0)  # 0 = private / not in PAD-US
+        segs = []
+        for k, s, e in _runs(key):
+            m = float(lengths_m[s:e].sum())
+            if segs and (m < C.MIN_ROW_SEGMENT_M or segs[-1]["key"] == k):  # merge rasterization slivers
+                segs[-1]["end"] = e
+                continue
+            segs.append({"key": k, "start": s, "end": e})
+
+        out, dist_km, real = [], 0.0, self.g.parcel_id is not None
+        for seq, sg in enumerate(segs):
+            s, e, k = sg["start"], sg["end"], sg["key"]
+            km = float(lengths_m[s:e].sum() / 1000)
+            if k == 0:
+                if real:
+                    ids = self.g.parcel_id[rows[s:e], cols[s:e]]
+                    parcels = max(int(len(np.unique(ids[ids > 0]))), 1)
+                else:
+                    parcels = max(int(round(float((self.g.parcel_density[rows[s:e], cols[s:e]] * lengths_m[s:e]).sum() / 1000))), 1)
+                holder = {"owner": "private", "unit": None, "parcels": parcels}
+            else:
+                u = units[k - 1]
+                holder = {"owner": u["owner"], "unit": u["name"], "parcels": 1}
+            out.append({"seq": seq, **holder, "start_km": round(dist_km, 3), "km": round(km, 3)})
+            dist_km += km
+
+        private_parcels = sum(r["parcels"] for r in out if r["owner"] == "private")
+        public_units = {r["unit"] for r in out if r["owner"] != "private"}
+        return {
+            "segment_count": len(out),
+            "private_parcels": private_parcels,
+            "private_parcels_method": "real parcel polygons" if real else "estimated from building density",
+            "public_agreements": len(public_units),
+            "landholder_negotiations_est": private_parcels + len(public_units),
+            "segments": out,
+        }
 
     # ------------------------------------------------------------------ land
     def land_crossings(self, rows, cols, lengths_m):

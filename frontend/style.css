@@ -100,3 +100,6 @@ button.primary:hover { filter: brightness(1.1); }
   .cesium-viewer-bottom { left: 0; }
 }
 .cmp td { white-space: nowrap; }
+.triggers { margin: 6px 0 0; padding-left: 0; list-style: none; font-size: 12px; }
+.triggers li { padding: 3px 0; border-bottom: 1px solid var(--line); }
+.triggers code { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.1); margin-right: 6px; }

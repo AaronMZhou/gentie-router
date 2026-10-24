@@ -13,6 +13,8 @@ reprojects to config.WORK_CRS and burns it onto ONE aligned ~30 m grid:
     data/processed/firerisk.tif    float32  0..1 continuous hazard (USFS WHP; fallback: from fire.tif)
     data/processed/corridor.tif    uint8    bit 1 = major road, bit 2 = power line
     data/processed/region.tif      uint8    1 inside the lon/lat bbox
+    data/processed/parceldens.tif  float32  est. parcels crossed per km of line (from building density)
+    data/processed/parcelid.tif    int32    real parcel ids - only if data/raw/parcels.* was provided
     data/processed/overlays/*.geojson       lon/lat polygons/lines for the map
     data/processed/meta.json                grid + provenance (incl. synthetic layers)
 
@@ -294,6 +296,36 @@ def fetch_fire_risk(grid, refresh):
     return (np.clip(whp / C.WHP_REF, 0, 1) ** C.WHP_EXPONENT).astype(np.float32)
 
 
+# ---------------------------------------------------------------------------
+# Layer 5: parcels (estimated from building density, or real parcels if provided)
+# ---------------------------------------------------------------------------
+def fetch_parcel_density(grid, refresh):
+    """Parcels crossed per km of line, estimated from USFS WRC building counts."""
+    bld = export_image(C.BUILDINGS_URL, grid, "buildings_wrc.tif", refresh, interpolation="RSP_NearestNeighbor")
+    bld[(bld < 0) | (bld > 1e4) | ~np.isfinite(bld)] = 0
+    if bld.sum() == 0:
+        raise RuntimeError("building count export is empty")
+    density = gaussian_filter(bld, C.PARCEL_DENSITY_SMOOTH_M / C.CELL_SIZE_M) / (C.CELL_SIZE_M ** 2 / 1e6)  # per km2
+    area = np.clip(C.BUILDINGS_PER_PARCEL / np.maximum(density, 1e-9), C.PARCEL_MIN_KM2, C.PARCEL_MAX_KM2)
+    print(f"    {int(bld.sum())} buildings in grid")
+    return (1.0 / np.sqrt(area)).astype(np.float32)
+
+
+def load_real_parcels(grid):
+    """Optional: rasterize a user-supplied parcel file (one id per de-duplicated polygon)."""
+    for stem in C.PARCEL_FILE_STEMS:
+        path = C.RAW_DIR / stem
+        if path.exists():
+            gdf = gpd.read_file(path, bbox=gpd.GeoSeries([box(*C.BBOX)], crs="EPSG:4326"))
+            gdf = gdf[gdf.geometry.notna()].to_crs(C.WORK_CRS)
+            gdf = gdf[~gdf.geometry.to_wkb().duplicated()]  # SanGIS parcels are "stacked"
+            ids = rasterize(((g, i + 1) for i, g in enumerate(gdf.geometry)), out_shape=(grid["nrows"], grid["ncols"]),
+                            transform=grid["transform"], fill=0, dtype="int32")
+            print(f"    real parcels: {len(gdf)} polygons from {path.name}")
+            return ids, path.name
+    return None, None
+
+
 def risk_from_levels(fire):
     lut = np.array([C.FIRE_RISK_FROM_LEVEL[k] for k in range(4)], dtype=np.float32)
     return lut[fire]
@@ -505,6 +537,14 @@ def main():
     sources["corridors"] = "SYNTHETIC" if "corridors" in synthetic else "OpenStreetMap via Overpass"
     corridor = rasterize_corridors(lines, grid)
 
+    print("Layer 5    parcels (estimated from USFS WRC building counts; real parcels if data/raw/parcels.* exists)")
+    parcel_density = attempt("parcels", lambda: fetch_parcel_density(grid, args.refresh),
+                             lambda: np.full((grid["nrows"], grid["ncols"]), C.SYNTHETIC_PARCELS_PER_KM, np.float32))
+    parcel_ids, parcel_file = (None, None) if args.synthetic_all else load_real_parcels(grid)
+    sources["parcels"] = (f"real parcels: {parcel_file}" if parcel_file else
+                          "SYNTHETIC constant density" if "parcels" in synthetic else
+                          "ESTIMATED from USFS WRC building count")
+
     # ---- write aligned grids
     write_tif("elevation", dem, grid)
     write_tif("slope", slope, grid)
@@ -515,6 +555,12 @@ def main():
     write_tif("firerisk", fire_risk.astype(np.float32), grid)
     write_tif("corridor", corridor.astype(np.uint8), grid)
     write_tif("region", region, grid)
+    write_tif("parceldens", parcel_density.astype(np.float32), grid)
+    parcel_tif = C.PROCESSED_DIR / "parcelid.tif"
+    if parcel_ids is not None:
+        write_tif("parcelid", parcel_ids, grid)
+    elif parcel_tif.exists():
+        parcel_tif.unlink()  # stale real-parcel layer from an earlier run
 
     # ---- overlays for the frontend
     raster_overlay(fire, grid, {1, 2, 3}, "fire",
@@ -546,6 +592,9 @@ def main():
     fr = fire_risk[inside]
     print(f"  fire risk  p10 {np.percentile(fr, 10):.2f}, median {np.median(fr):.2f}, p90 {np.percentile(fr, 90):.2f}, "
           f">= {C.HIGH_RISK_THRESHOLD} on {np.mean(fr >= C.HIGH_RISK_THRESHOLD):.1%}  ({sources['fire_risk']})")
+    pdn = parcel_density[inside]
+    print(f"  parcels    est. parcels/km p10 {np.percentile(pdn, 10):.1f}, median {np.median(pdn):.1f}, "
+          f"p90 {np.percentile(pdn, 90):.1f}  ({sources['parcels']})")
     print(f"  corridors  road {np.mean(corridor[inside] & 1 > 0):.1%}, power {np.mean(corridor[inside] & 2 > 0):.1%}, "
           f"{len(lines['power'])} power ways, {len(lines['road'])} road ways, {len(subs)} substations")
     if synthetic:

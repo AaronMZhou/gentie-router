@@ -361,6 +361,13 @@
     if (exposure > 0.05) notes.push(`Cuts overhead conductor in high wildfire hazard by ${fmtKm(exposure)}.`);
     $("cmpNote").innerHTML = notes.join("<br>");
 
+    if (p.row && p.inventory) {
+      $("rLandholders").textContent =
+        `${p.row.landholder_negotiations_est} (${p.row.private_parcels} parcels${p.row.private_parcels_method.startsWith("est") ? " est." : ""} + ${p.row.public_agreements} agencies)`;
+      $("rStructures").textContent = `${p.inventory.tower_count} towers · ${p.inventory.splice_vault_count_est} vaults`;
+      $("triggers").innerHTML = (p.permitting_triggers || [])
+        .map((t) => `<li><code>${t.code}</code>${t.reason}</li>`).join("");
+    }
     renderProfile(p.profile || []);
 
     const ol = $("segments");

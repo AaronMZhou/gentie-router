@@ -22,6 +22,7 @@ CASES = [
     ("Ballena Valley solar -> Creelman Sub", (-116.75, 33.04), CREELMAN_SUB),
     ("Pine Hills site -> Julian-area Sub", (-116.63, 33.03), JULIAN_SUB),
     ("North of Mesa Grande Res. -> Creelman Sub", (-116.76, 33.16), CREELMAN_SUB),
+    ("Inside Mesa Grande Res. -> Creelman Sub", (-116.7531, 33.0880), CREELMAN_SUB),
 ]
 
 
@@ -45,6 +46,13 @@ def show(name, fc):
     print(f"  fire     route mean risk {p['mean_fire_risk']:.2f}, high-hazard {p['high_risk_km']:.2f} km "
           f"(overhead {p['overhead_high_risk_km']:.2f} km) | baseline mean risk {b['mean_fire_risk']:.2f}, "
           f"high-hazard {b['high_risk_km']:.2f} km (all overhead)")
+    inv, row = p["inventory"], p["row"]
+    print(f"  inventory towers {inv['tower_count']}, transitions {inv['transition_count']}, vaults {inv['splice_vault_count_est']}, "
+          f"conductor {inv['conductor_km_est']} km, cable {inv['cable_km_est']} km")
+    print(f"  ROW      {row['segment_count']} segments, {row['private_parcels']} private parcels ({row['private_parcels_method']}), "
+          f"{row['public_agreements']} public agreements -> {row['landholder_negotiations_est']} negotiations; "
+          f"land {p['land']['km_by_owner']}")
+    print(f"  triggers {[t['code'] for t in p['permitting_triggers']]}")
     print(f"  tribal   route {p['tribal_km']:.2f} km {[t['name'] for t in p['tribal_lands_crossed']]}, "
           f"baseline {b['tribal_km']:.2f} km {[t['name'] for t in b['tribal_lands_crossed']]}")
     for f in fc["features"]:
@@ -52,6 +60,25 @@ def show(name, fc):
         if q["kind"] == "segment":
             print(f"    seg {q['index']:2d} {q['mode']:11s} {q['length_km']:6.2f} km  {fmt_usd(q['est_cost_usd']):>9s}  "
                   f"({fmt_usd(q['cost_per_mile_usd'])}/mi)  {len(f['geometry']['coordinates'])} vertices")
+
+
+def check_schema(fc):
+    """Planning/inventory sections exist and agree with each other."""
+    p = fc["properties"]
+    inv, land, row = p["inventory"], p["land"], p["row"]
+    total = p["total_km"]
+    assert p["schema_version"] == "1.1"
+    assert abs(inv["overhead_km"] + inv["underground_km"] - total) < 0.01, "OH + UG != total"
+    assert abs(sum(s["km"] for s in row["segments"]) - total) < 0.02 * total + 0.01, "ROW segments don't sum to total"
+    assert abs(sum(land["km_by_owner"].values()) - total) < 0.02 * total + 0.01, "land km don't sum to total"
+    assert inv["tower_count"] == p["tower_count"] and inv["transition_count"] == p["n_transitions"]
+    assert row["landholder_negotiations_est"] == row["private_parcels"] + row["public_agreements"]
+    codes = {t["code"] for t in p["permitting_triggers"]}
+    assert "CEQA" in codes
+    assert ("TRIBAL_CONSENT" in codes) == (land["tribal_km"] > 0)
+    assert ("FEDERAL_ROW_NEPA" in codes) == (land["federal_km"] > 0)
+    seqs = [s["seq"] for s in row["segments"]]
+    assert seqs == list(range(len(seqs)))
 
 
 def main():
@@ -79,6 +106,7 @@ def main():
             assert a["properties"]["mode"] != b["properties"]["mode"], "adjacent segments share a mode"
         assert np.allclose(segs[0]["geometry"]["coordinates"][0], s, atol=1e-5)
         assert np.allclose(segs[-1]["geometry"]["coordinates"][-1], e, atol=1e-5)
+        check_schema(fc)
         # the router should never string more overhead line through high hazard than the straight line does
         p = fc["properties"]
         assert p["overhead_high_risk_km"] <= p["baseline"]["high_risk_km"] + 0.1, "more OH high-hazard km than baseline"

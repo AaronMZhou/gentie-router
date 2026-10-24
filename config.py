@@ -54,6 +54,12 @@ WHP_URL = ("https://imagery.geoplatform.gov/iipp/rest/services/Fire_Aviation/"
 WHP_REF = 25000.0           # WHP at/above this = max risk (~p90 in this region)
 WHP_EXPONENT = 0.5          # risk = clip(WHP / WHP_REF, 0, 1) ** exponent (sqrt spreads the low end)
 FIRE_RISK_FROM_LEVEL = {0: 0.0, 1: 0.25, 2: 0.5, 3: 1.0}  # fallback when WHP is unavailable
+# Building count per 30 m cell (USFS WRC, public domain) -> estimated parcel density.
+BUILDINGS_URL = ("https://imagery.geoplatform.gov/iipp/rest/services/Fire_Aviation/"
+                 "USFS_EDW_RMRS_WRC_BuildingCount/ImageServer/exportImage")
+# Optional real parcels: drop data/raw/parcels.gpkg|.shp|.geojson (e.g. the SanGIS PARCELS layer,
+# downloaded under the SanGIS end-user agreement) and re-run prepare_data.py.
+PARCEL_FILE_STEMS = ["parcels.gpkg", "parcels.shp", "parcels.geojson"]
 OVERPASS_URLS = [
     "https://overpass-api.de/api/interpreter",
     "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
@@ -127,3 +133,18 @@ TRANSITION_COST_USD = 750_000  # ASSUMPTION: riser pole / transition structure p
 TOWER_SPACING_M = 300.0      # visual tower markers along overhead segments
 SIMPLIFY_TOLERANCE_M = 20.0
 STRAIGHTEN_TOL = 0.01        # accept a straight span if it costs <= 1% more than the grid path it replaces
+
+# --------------------------------------------------------------------------
+# Inventory / right-of-way estimates (ASSUMPTIONS, reported in /route "inventory" and "row")
+# --------------------------------------------------------------------------
+PHASES = 3                   # three-phase AC: 3 conductors overhead, 3 single-core cables underground
+SAG_FACTOR = 1.03            # conductor length / horizontal span length
+SPLICE_VAULT_SPACING_M = 550.0  # underground cable section length between splice vaults
+# Parcel estimate when no real parcel file is present: parcel area ~ 1 / building density,
+# clamped to [~1 acre, ~160 acres]; a line crosses ~1/sqrt(area) parcels per km.
+BUILDINGS_PER_PARCEL = 1.0
+PARCEL_DENSITY_SMOOTH_M = 250.0
+PARCEL_MIN_KM2 = 0.004       # ~1 acre
+PARCEL_MAX_KM2 = 0.65        # ~160 acres (open ranchland)
+SYNTHETIC_PARCELS_PER_KM = 2.0
+MIN_ROW_SEGMENT_M = 60.0     # landholder runs shorter than this are rasterization slivers -> merged

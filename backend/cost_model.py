@@ -35,6 +35,8 @@ class CostGrids:
     landunit: np.ndarray      # PAD-US unit id -> meta["land_units"][id - 1]
     corridor: np.ndarray
     region: np.ndarray
+    parcel_density: np.ndarray       # est. parcels crossed per km of line
+    parcel_id: np.ndarray | None     # real parcel ids, only if a parcel file was provided
     overhead: np.ndarray      # $/m
     underground: np.ndarray   # $/m
     dollar: np.ndarray        # $/m, cheaper of the two
@@ -68,6 +70,8 @@ def build_cost_grids(corridor_override=None):
     landunit, _ = _read("landunit")
     corridor = corridor_override if corridor_override is not None else _read("corridor")[0]
     region, _ = _read("region")
+    parcel_density, _ = _read("parceldens")
+    parcel_id = _read("parcelid")[0] if (C.PROCESSED_DIR / "parcelid.tif").exists() else None
 
     oh_base = C.OVERHEAD_COST_PER_MILE / C.METERS_PER_MILE
     ug_base = C.UNDERGROUND_COST_PER_MILE / C.METERS_PER_MILE
@@ -102,5 +106,5 @@ def build_cost_grids(corridor_override=None):
 
     return CostGrids(elevation=elevation, slope=slope, fire=fire, fire_risk=fire_risk, protected=protected, owner=owner,
                      landunit=landunit, corridor=corridor,
-                     region=region, overhead=overhead, underground=underground, dollar=dollar, mode=mode,
+                     region=region, parcel_density=parcel_density, parcel_id=parcel_id, overhead=overhead, underground=underground, dollar=dollar, mode=mode,
                      routing=routing, transform=transform, meta=meta)
