@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gen-tie Router</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.123.0/Build/Cesium/Widgets/widgets.css">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/cesium@1.123.0/Build/Cesium/Cesium.js"></script>
+  <script src="config.js"></script>
+</head>
+<body>
+  <div id="cesiumContainer"></div>
+
+  <aside id="panel">
+    <header>
+      <h1>Gen-tie Router</h1>
+      <div id="region" class="muted">Loading region…</div>
+      <div id="dataBadge" class="badge">…</div>
+    </header>
+
+    <section id="steps">
+      <div class="step" id="step1"><span class="dot start"></span><div><b>1.</b> Click the <b>project site</b></div></div>
+      <div class="step" id="step2"><span class="dot end"></span><div><b>2.</b> Click a <b>substation</b> <span class="muted">(or any point)</span></div></div>
+      <div id="status" class="status"></div>
+      <div class="buttons">
+        <button id="btnReset">Reset</button>
+        <button id="btnDemo" class="primary">Load demo route</button>
+      </div>
+    </section>
+
+    <section id="layers">
+      <h2>Overlays</h2>
+      <label><input type="checkbox" id="tglFire"> Wildfire hazard <span class="sw fire"></span></label>
+      <label><input type="checkbox" id="tglProtected"> Protected land <span class="sw prot"></span></label>
+      <label><input type="checkbox" id="tglLines" checked> Existing power lines <span class="sw line"></span></label>
+      <label><input type="checkbox" id="tglBaseline" checked> Straight-line baseline <span class="sw base"></span></label>
+    </section>
+
+    <section id="results" hidden>
+      <h2>Least-cost route <span id="demoTag" class="tag" hidden>DEMO (precomputed)</span></h2>
+      <div class="headline">
+        <div><div class="big" id="rCost">–</div><div class="muted">est. cost</div></div>
+        <div><div class="big" id="rKm">–</div><div class="muted">length</div></div>
+      </div>
+      <div class="grid">
+        <div><span class="k">Overhead</span><span class="v" id="rOh">–</span></div>
+        <div><span class="k">Underground</span><span class="v" id="rUg">–</span></div>
+        <div><span class="k">High-fire km</span><span class="v" id="rFire">–</span></div>
+        <div><span class="k">OH in high fire</span><span class="v" id="rOhFire">–</span></div>
+        <div><span class="k">Protected land</span><span class="v" id="rProt">–</span></div>
+        <div><span class="k">OH/UG transitions</span><span class="v" id="rTrans">–</span></div>
+      </div>
+
+      <h3>vs. straight overhead line</h3>
+      <table class="cmp">
+        <thead><tr><th></th><th>Route</th><th>Straight</th></tr></thead>
+        <tbody>
+          <tr><td>Length</td><td id="cLenR"></td><td id="cLenB"></td></tr>
+          <tr><td>Cost</td><td id="cCostR"></td><td id="cCostB"></td></tr>
+          <tr><td>Protected</td><td id="cProtR"></td><td id="cProtB"></td></tr>
+          <tr><td>OH in high fire</td><td id="cFireR"></td><td id="cFireB"></td></tr>
+        </tbody>
+      </table>
+      <div id="cmpNote" class="note"></div>
+
+      <h3>Elevation profile</h3>
+      <svg id="profile" viewBox="0 0 300 90" preserveAspectRatio="none"></svg>
+      <div class="profile-axis muted"><span>0 km</span><span id="profEnd"></span></div>
+
+      <h3>Segments</h3>
+      <ol id="segments"></ol>
+    </section>
+
+    <section class="legend">
+      <div><span class="sw oh"></span> Overhead (towers every ~300 m)</div>
+      <div><span class="sw ug"></span> Underground</div>
+      <p class="muted small">Costs are rough planning assumptions ($2M/mi overhead, $10M/mi underground,
+        scaled by slope, wildfire tier, corridors &amp; land status). Not an engineering estimate.</p>
+    </section>
+  </aside>
+  <div id="toast" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,452 @@
+"""
+One-off data pipeline.
+
+Downloads (or loads from cache) every input layer, clips it to config.BBOX,
+reprojects to config.WORK_CRS and burns it onto ONE aligned ~30 m grid:
+
+    data/processed/elevation.tif   float32  metres (USGS 3DEP)
+    data/processed/slope.tif       float32  degrees
+    data/processed/protected.tif   uint8    0 none, 1 managed (GAP 3), 2 strict (GAP 1-2/park/wilderness)
+    data/processed/fire.tif        uint8    0 none .. 3 very high / HFTD Tier 3
+    data/processed/corridor.tif    uint8    bit 1 = major road, bit 2 = power line
+    data/processed/region.tif      uint8    1 inside the lon/lat bbox
+    data/processed/overlays/*.geojson       lon/lat polygons/lines for the map
+    data/processed/meta.json                grid + provenance (incl. synthetic layers)
+
+Any layer whose download fails is replaced by clearly-labelled SYNTHETIC data
+so development is never blocked.
+
+Usage:  python data/prepare_data.py [--refresh] [--synthetic-all]
+"""
+import argparse
+import json
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+import numpy as np
+import requests
+import rasterio
+from rasterio.features import rasterize, shapes
+from rasterio.io import MemoryFile
+from rasterio.transform import from_origin
+import geopandas as gpd
+from pyproj import Transformer
+from scipy.ndimage import gaussian_filter
+from shapely.geometry import box, shape, LineString, mapping
+from shapely.ops import unary_union
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import config as C  # noqa: E402
+
+HEADERS = {"User-Agent": "gentie-router-hackathon/0.1"}
+RNG = np.random.default_rng(42)
+
+
+# ---------------------------------------------------------------------------
+# Grid definition
+# ---------------------------------------------------------------------------
+def build_grid():
+    """Projected grid covering the lon/lat bbox, snapped to CELL_SIZE_M."""
+    w, s, e, n = C.BBOX
+    to_utm = Transformer.from_crs("EPSG:4326", C.WORK_CRS, always_xy=True)
+    xs, ys = to_utm.transform([w, e, e, w], [s, s, n, n])
+    cs = C.CELL_SIZE_M
+    xmin, xmax = np.floor(min(xs) / cs) * cs, np.ceil(max(xs) / cs) * cs
+    ymin, ymax = np.floor(min(ys) / cs) * cs, np.ceil(max(ys) / cs) * cs
+    ncols, nrows = int(round((xmax - xmin) / cs)), int(round((ymax - ymin) / cs))
+    transform = from_origin(xmin, ymax, cs, cs)
+    return dict(xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax,
+                ncols=ncols, nrows=nrows, transform=transform)
+
+
+def region_mask(grid):
+    """1 where the cell centre lies inside the lon/lat bbox."""
+    t = grid["transform"]
+    cols, rows = np.meshgrid(np.arange(grid["ncols"]), np.arange(grid["nrows"]))
+    x = t.c + (cols + 0.5) * t.a
+    y = t.f + (rows + 0.5) * t.e
+    to_ll = Transformer.from_crs(C.WORK_CRS, "EPSG:4326", always_xy=True)
+    lon, lat = to_ll.transform(x, y)
+    w, s, e, n = C.BBOX
+    return ((lon >= w) & (lon <= e) & (lat >= s) & (lat <= n)).astype(np.uint8)
+
+
+# ---------------------------------------------------------------------------
+# Generic helpers
+# ---------------------------------------------------------------------------
+def cached_json(name, fetch_fn, refresh):
+    path = C.RAW_DIR / name
+    if path.exists() and not refresh:
+        return json.loads(path.read_text())
+    data = fetch_fn()
+    path.write_text(json.dumps(data))
+    return data
+
+
+def arcgis_query_geojson(layer_url, out_fields="*", where="1=1", max_offset_deg=0.0002):
+    """Query an ArcGIS Feature/Map service layer for features intersecting the bbox."""
+    w, s, e, n = C.BBOX
+    feats, offset = [], 0
+    while True:
+        params = dict(
+            where=where, geometry=f"{w},{s},{e},{n}", geometryType="esriGeometryEnvelope",
+            inSR=4326, spatialRel="esriSpatialRelIntersects", outFields=out_fields,
+            returnGeometry="true", outSR=4326, maxAllowableOffset=max_offset_deg,
+            resultOffset=offset, f="geojson",
+        )
+        r = requests.get(f"{layer_url}/query", params=params, headers=HEADERS, timeout=120)
+        r.raise_for_status()
+        js = r.json()
+        if "error" in js:
+            raise RuntimeError(js["error"])
+        batch = js.get("features", [])
+        feats += batch
+        exceeded = js.get("exceededTransferLimit") or js.get("properties", {}).get("exceededTransferLimit")
+        if not exceeded or not batch:
+            break
+        offset += len(batch)
+    return {"type": "FeatureCollection", "features": feats}
+
+
+def to_work_gdf(fc):
+    """GeoJSON (lon/lat) -> GeoDataFrame in WORK_CRS clipped to the bbox."""
+    feats = [f for f in fc["features"] if f.get("geometry")]
+    if not feats:
+        return gpd.GeoDataFrame(geometry=[], crs=C.WORK_CRS)
+    gdf = gpd.GeoDataFrame.from_features(feats, crs="EPSG:4326")
+    gdf["geometry"] = gdf.geometry.make_valid()
+    gdf = gdf.clip(box(*C.BBOX).buffer(0.01))
+    gdf = gdf[~gdf.geometry.is_empty]
+    return gdf.to_crs(C.WORK_CRS)
+
+
+def burn(geoms, grid, value=1, all_touched=False):
+    geoms = [g for g in geoms if g is not None and not g.is_empty]
+    if not geoms:
+        return np.zeros((grid["nrows"], grid["ncols"]), np.uint8)
+    return rasterize(((g, value) for g in geoms), out_shape=(grid["nrows"], grid["ncols"]),
+                     transform=grid["transform"], fill=0, dtype="uint8", all_touched=all_touched)
+
+
+def smooth_noise(grid, sigma_cells):
+    z = gaussian_filter(RNG.standard_normal((grid["nrows"], grid["ncols"])), sigma_cells)
+    return (z - z.mean()) / (z.std() + 1e-9)
+
+
+# ---------------------------------------------------------------------------
+# Layer 1: elevation (USGS 3DEP) -> slope
+# ---------------------------------------------------------------------------
+def fetch_dem(grid, refresh):
+    path = C.RAW_DIR / "dem_3dep.tif"
+    if not path.exists() or refresh:
+        params = dict(
+            bbox=f"{grid['xmin']},{grid['ymin']},{grid['xmax']},{grid['ymax']}",
+            bboxSR=32611, imageSR=32611, size=f"{grid['ncols']},{grid['nrows']}",
+            format="tiff", pixelType="F32", noData=-9999,
+            interpolation="RSP_BilinearInterpolation", f="image",
+        )
+        r = requests.get(C.DEM_3DEP_URL, params=params, headers=HEADERS, timeout=180)
+        r.raise_for_status()
+        if "tiff" not in r.headers.get("Content-Type", ""):
+            raise RuntimeError(f"3DEP returned {r.headers.get('Content-Type')}: {r.text[:200]}")
+        path.write_bytes(r.content)
+    with MemoryFile(path.read_bytes()) as mf, mf.open() as ds:
+        dem = ds.read(1).astype(np.float32)
+    if dem.shape != (grid["nrows"], grid["ncols"]):
+        raise RuntimeError(f"DEM shape {dem.shape} != grid")
+    bad = (dem < -500) | ~np.isfinite(dem)
+    if bad.mean() > 0.05:
+        raise RuntimeError(f"DEM has {bad.mean():.0%} nodata")
+    if bad.any():
+        dem[bad] = np.nanmedian(dem[~bad])
+    return dem
+
+
+def synthetic_dem(grid):
+    """Fractal hills 400-1800 m with a NE-trending ridge (labelled SYNTHETIC)."""
+    rows, cols = np.mgrid[0:grid["nrows"], 0:grid["ncols"]]
+    u = (cols - rows) / max(grid["nrows"], grid["ncols"])
+    ridge = np.exp(-((u - 0.1) ** 2) / 0.05)
+    z = sum(smooth_noise(grid, s) * a for s, a in [(80, 1.0), (30, 0.5), (10, 0.2), (3, 0.05)])
+    z = 0.6 * z / np.abs(z).max() + ridge
+    z = (z - z.min()) / (z.max() - z.min())
+    return (400 + 1400 * z).astype(np.float32)
+
+
+def slope_deg(dem):
+    gy, gx = np.gradient(dem, C.CELL_SIZE_M)
+    return np.degrees(np.arctan(np.hypot(gx, gy))).astype(np.float32)
+
+
+# ---------------------------------------------------------------------------
+# Layer 2: protected areas (PAD-US)
+# ---------------------------------------------------------------------------
+def fetch_protected(grid, refresh):
+    fc = cached_json("padus.geojson", lambda: arcgis_query_geojson(
+        C.PADUS_URL, out_fields="Unit_Nm,GAP_Sts,Des_Tp,Mang_Name"), refresh)
+    gdf = to_work_gdf(fc)
+    if gdf.empty:
+        raise RuntimeError("PAD-US returned no features")
+    gap = gdf["GAP_Sts"].astype(str)
+    strict = gap.isin(C.PROTECTED_STRICT_GAP) | gdf["Des_Tp"].isin(C.PROTECTED_STRICT_DESIGNATIONS)
+    managed = gap.isin(C.PROTECTED_MANAGED_GAP) & ~strict
+    arr = np.maximum(burn(gdf[managed].geometry, grid, 1), burn(gdf[strict].geometry, grid, 2))
+    names = sorted(set(gdf.loc[strict, "Unit_Nm"].dropna()))
+    print(f"    strict units: {', '.join(names)}")
+    return arr
+
+
+def synthetic_protected(grid):
+    managed = (smooth_noise(grid, 60) > 0.3).astype(np.uint8)
+    strict = (smooth_noise(grid, 25) > 1.6).astype(np.uint8) * 2
+    return np.maximum(managed, strict)
+
+
+# ---------------------------------------------------------------------------
+# Layer 3: wildfire hazard (CPUC HFTD tiers + CAL FIRE FHSZ)
+# ---------------------------------------------------------------------------
+def fetch_fire(grid, refresh):
+    fire = np.zeros((grid["nrows"], grid["ncols"]), np.uint8)
+    sources = []
+    for lid, level in C.HFTD_LAYERS.items():
+        try:
+            fc = cached_json(f"hftd_{lid}.geojson",
+                             lambda: arcgis_query_geojson(f"{C.HFTD_URL}/{lid}", out_fields="FID"), refresh)
+            gdf = to_work_gdf(fc)
+            fire = np.maximum(fire, burn(gdf.geometry, grid, level))
+            sources.append(f"CPUC HFTD layer {lid}")
+        except Exception as ex:  # keep going with other sources
+            print(f"    HFTD layer {lid} failed: {ex}")
+    for lid in C.FHSZ_LAYERS:
+        try:
+            fc = cached_json(f"fhsz_{lid}.geojson",
+                             lambda: arcgis_query_geojson(f"{C.FHSZ_URL}/{lid}", out_fields="HAZ_CODE"), refresh)
+            gdf = to_work_gdf(fc)
+            for code in (1, 2, 3):
+                fire = np.maximum(fire, burn(gdf[gdf["HAZ_CODE"] == code].geometry, grid, code))
+            sources.append(f"CAL FIRE FHSZ layer {lid}")
+        except Exception as ex:
+            print(f"    FHSZ layer {lid} failed: {ex}")
+    if not sources:
+        raise RuntimeError("all fire sources failed")
+    return fire, sources
+
+
+def synthetic_fire(grid, slope):
+    z = smooth_noise(grid, 40) + 0.04 * gaussian_filter(slope, 5)
+    return np.digitize(z, [-0.8, 0.0, 0.7]).astype(np.uint8)
+
+
+# ---------------------------------------------------------------------------
+# Layer 4: existing corridors (OSM power lines + major roads)
+# ---------------------------------------------------------------------------
+def overpass_query():
+    w, s, e, n = C.BBOX
+    bb = f"{s},{w},{n},{e}"
+    q = (f'[out:json][timeout:90];('
+         f'way["power"~"^(line|minor_line)$"]({bb});'
+         f'way["highway"~"^(trunk|primary|secondary|motorway)$"]({bb});'
+         f');out geom tags;'
+         f'nwr["power"="substation"]({bb});out center tags;')
+    last = None
+    for attempt in range(2):
+        for url in C.OVERPASS_URLS:
+            try:
+                r = requests.post(url, data={"data": q}, headers=HEADERS, timeout=150)
+                if r.ok:
+                    return r.json()
+                last = f"{url} HTTP {r.status_code}"
+            except Exception as ex:
+                last = f"{url} {ex}"
+            print(f"    overpass attempt failed: {last}")
+        time.sleep(3)
+    raise RuntimeError(last)
+
+
+def fetch_corridors(grid, refresh):
+    osm = cached_json("osm.json", overpass_query, refresh)
+    lines = {"power": [], "road": []}
+    subs = []
+    for el in osm["elements"]:
+        tags = el.get("tags", {})
+        if tags.get("power") == "substation":
+            c = el.get("center") or {"lat": el.get("lat"), "lon": el.get("lon")}
+            if c.get("lat") is not None:
+                subs.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [c["lon"], c["lat"]]},
+                             "properties": {"name": tags.get("name") or "Substation (unnamed)",
+                                            "voltage": tags.get("voltage")}})
+            continue
+        if el["type"] != "way" or "geometry" not in el:
+            continue
+        coords = [(p["lon"], p["lat"]) for p in el["geometry"]]
+        if len(coords) < 2:
+            continue
+        kind = "power" if "power" in tags else "road"
+        lines[kind].append({"type": "Feature", "geometry": mapping(LineString(coords)),
+                            "properties": {"kind": kind, "name": tags.get("name") or tags.get("ref"),
+                                           "voltage": tags.get("voltage"), "highway": tags.get("highway")}})
+    if not lines["power"] and not lines["road"]:
+        raise RuntimeError("OSM returned no lines")
+    return lines, subs
+
+
+def synthetic_corridor_lines(grid):
+    """A few wiggly roads and one power line, in lon/lat (labelled SYNTHETIC)."""
+    w, s, e, n = C.BBOX
+    feats = {"power": [], "road": []}
+
+    def walk(p0, p1, wiggle, k=40):
+        t = np.linspace(0, 1, k)
+        lon = p0[0] + (p1[0] - p0[0]) * t + np.cumsum(RNG.normal(0, wiggle, k)) * np.sin(np.pi * t)
+        lat = p0[1] + (p1[1] - p0[1]) * t + np.cumsum(RNG.normal(0, wiggle, k)) * np.sin(np.pi * t)
+        return LineString(zip(lon, lat))
+
+    for p0, p1 in [((w, s + 0.3 * (n - s)), (e, s + 0.55 * (n - s))),
+                   ((w + 0.4 * (e - w), s), (w + 0.6 * (e - w), n))]:
+        feats["road"].append({"type": "Feature", "geometry": mapping(walk(p0, p1, 0.002)),
+                              "properties": {"kind": "road", "name": "SYNTHETIC road"}})
+    feats["power"].append({"type": "Feature", "geometry": mapping(walk((w, s + 0.2 * (n - s)), (e, n - 0.1 * (n - s)), 0.001)),
+                           "properties": {"kind": "power", "name": "SYNTHETIC 69 kV line"}})
+    subs = [{"type": "Feature", "geometry": {"type": "Point", "coordinates": [w + 0.08 * (e - w), s + 0.3 * (n - s)]},
+             "properties": {"name": "SYNTHETIC Substation", "voltage": "69000"}}]
+    return feats, subs
+
+
+def rasterize_corridors(lines, grid):
+    out = np.zeros((grid["nrows"], grid["ncols"]), np.uint8)
+    for kind, bit, buf in [("road", 1, C.ROAD_BUFFER_M), ("power", 2, C.POWERLINE_BUFFER_M)]:
+        fc = {"type": "FeatureCollection", "features": lines[kind]}
+        gdf = to_work_gdf(fc)
+        if gdf.empty:
+            continue
+        out |= burn(gdf.geometry.buffer(buf), grid, bit, all_touched=True)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Output helpers
+# ---------------------------------------------------------------------------
+def write_tif(name, arr, grid):
+    profile = dict(driver="GTiff", height=grid["nrows"], width=grid["ncols"], count=1,
+                   dtype=arr.dtype, crs=C.WORK_CRS, transform=grid["transform"], compress="deflate")
+    with rasterio.open(C.PROCESSED_DIR / f"{name}.tif", "w", **profile) as ds:
+        ds.write(arr, 1)
+
+
+def raster_overlay(arr, grid, levels, name, labels):
+    """Polygonise level >= 1 cells of a small-int raster to a lon/lat GeoJSON overlay."""
+    geoms, vals = [], []
+    for geom, val in shapes(arr.astype(np.uint8), mask=arr > 0, transform=grid["transform"]):
+        if int(val) in levels:
+            geoms.append(shape(geom))
+            vals.append(int(val))
+    if not geoms:
+        gdf = gpd.GeoDataFrame({"level": []}, geometry=[], crs=C.WORK_CRS)
+    else:
+        gdf = gpd.GeoDataFrame({"level": vals}, geometry=geoms, crs=C.WORK_CRS)
+        gdf = gdf.dissolve(by="level", as_index=False)
+        gdf["geometry"] = gdf.geometry.simplify(C.CELL_SIZE_M * 1.5).buffer(0)
+        gdf = gdf.explode(index_parts=False)
+        gdf = gdf[gdf.geometry.area > 4 * C.CELL_SIZE_M ** 2]
+    gdf["label"] = gdf["level"].map(labels)
+    gdf.to_crs("EPSG:4326").to_file(C.OVERLAY_DIR / f"{name}.geojson", driver="GeoJSON")
+
+
+def write_fc(name, feats):
+    (C.OVERLAY_DIR / f"{name}.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": feats}))
+
+
+# ---------------------------------------------------------------------------
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--refresh", action="store_true", help="ignore cached downloads in data/raw")
+    ap.add_argument("--synthetic-all", action="store_true", help="skip downloads, use synthetic data for every layer")
+    args = ap.parse_args()
+
+    for d in (C.RAW_DIR, C.PROCESSED_DIR, C.OVERLAY_DIR):
+        d.mkdir(parents=True, exist_ok=True)
+
+    grid = build_grid()
+    print(f"Region: {C.REGION_NAME}  bbox={C.BBOX}")
+    print(f"Grid: {grid['ncols']} x {grid['nrows']} cells @ {C.CELL_SIZE_M:.0f} m in {C.WORK_CRS}")
+    synthetic, sources = [], {}
+
+    def attempt(label, real_fn, fake_fn):
+        if args.synthetic_all:
+            synthetic.append(label)
+            return fake_fn()
+        try:
+            t = time.time()
+            out = real_fn()
+            print(f"  [ok]  {label} ({time.time() - t:.1f}s)")
+            return out
+        except Exception as ex:
+            print(f"  [!!]  {label} download failed -> SYNTHETIC placeholder ({ex})")
+            synthetic.append(label)
+            return fake_fn()
+
+    region = region_mask(grid)
+
+    print("Layer 1/4  elevation (USGS 3DEP)")
+    dem = attempt("elevation", lambda: fetch_dem(grid, args.refresh), lambda: synthetic_dem(grid))
+    sources["elevation"] = "SYNTHETIC" if "elevation" in synthetic else "USGS 3DEP ImageServer"
+    slope = slope_deg(dem)
+
+    print("Layer 2/4  protected areas (PAD-US 3.0)")
+    protected = attempt("protected", lambda: fetch_protected(grid, args.refresh), lambda: synthetic_protected(grid))
+    sources["protected"] = "SYNTHETIC" if "protected" in synthetic else "PAD-US 3.0 Fee_Manager"
+
+    print("Layer 3/4  wildfire hazard (CPUC HFTD + CAL FIRE FHSZ)")
+    fire_res = attempt("fire", lambda: fetch_fire(grid, args.refresh), lambda: (synthetic_fire(grid, slope), ["SYNTHETIC"]))
+    fire, sources["fire"] = fire_res
+
+    print("Layer 4/4  existing corridors (OSM power lines + major roads)")
+    lines, subs = attempt("corridors", lambda: fetch_corridors(grid, args.refresh), lambda: synthetic_corridor_lines(grid))
+    sources["corridors"] = "SYNTHETIC" if "corridors" in synthetic else "OpenStreetMap via Overpass"
+    corridor = rasterize_corridors(lines, grid)
+
+    # ---- write aligned grids
+    write_tif("elevation", dem, grid)
+    write_tif("slope", slope, grid)
+    write_tif("protected", protected.astype(np.uint8), grid)
+    write_tif("fire", fire.astype(np.uint8), grid)
+    write_tif("corridor", corridor.astype(np.uint8), grid)
+    write_tif("region", region, grid)
+
+    # ---- overlays for the frontend
+    raster_overlay(fire, grid, {1, 2, 3}, "fire",
+                   {1: "Moderate", 2: "High / HFTD Tier 2", 3: "Very High / HFTD Tier 3"})
+    raster_overlay(protected, grid, {1, 2}, "protected",
+                   {1: "Managed public land (GAP 3)", 2: "Protected (GAP 1-2 / park / wilderness)"})
+    write_fc("powerlines", lines["power"])
+    write_fc("roads", lines["road"])
+    write_fc("substations", subs)
+
+    meta = dict(
+        region_name=C.REGION_NAME, bbox=list(C.BBOX), crs=C.WORK_CRS, cell_size_m=C.CELL_SIZE_M,
+        shape=[grid["nrows"], grid["ncols"]], transform=list(grid["transform"])[:6],
+        synthetic_layers=synthetic, sources=sources,
+        created_utc=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    )
+    C.META_PATH.write_text(json.dumps(meta, indent=2))
+
+    # ---- summary
+    inside = region == 1
+    print("\nSummary (inside bbox):")
+    print(f"  elevation  {dem[inside].min():.0f} - {dem[inside].max():.0f} m, "
+          f"slope median {np.median(slope[inside]):.1f} deg, p90 {np.percentile(slope[inside], 90):.1f} deg")
+    print(f"  protected  strict {np.mean(protected[inside] == 2):.1%}, managed {np.mean(protected[inside] == 1):.1%}")
+    print("  fire       " + ", ".join(f"L{k} {np.mean(fire[inside] == k):.1%}" for k in range(4)))
+    print(f"  corridors  road {np.mean(corridor[inside] & 1 > 0):.1%}, power {np.mean(corridor[inside] & 2 > 0):.1%}, "
+          f"{len(lines['power'])} power ways, {len(lines['road'])} road ways, {len(subs)} substations")
+    if synthetic:
+        print(f"\n*** SYNTHETIC PLACEHOLDER LAYERS: {', '.join(synthetic)} ***")
+    else:
+        print("\nAll layers loaded from real data sources.")
+    print(f"Wrote grids + overlays to {C.PROCESSED_DIR}")
+
+
+if __name__ == "__main__":
+    main()

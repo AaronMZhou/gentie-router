@@ -1,0 +1,36 @@
+{
+  "region_name": "San Diego backcountry (Ramona - Santa Ysabel - Julian)",
+  "bbox": [
+    -116.89,
+    32.94,
+    -116.56,
+    33.21
+  ],
+  "crs": "EPSG:32611",
+  "cell_size_m": 30.0,
+  "shape": [
+    1001,
+    1030
+  ],
+  "transform": [
+    30.0,
+    0.0,
+    510240.0,
+    0.0,
+    -30.0,
+    3674670.0
+  ],
+  "synthetic_layers": [],
+  "sources": {
+    "elevation": "USGS 3DEP ImageServer",
+    "protected": "PAD-US 3.0 Fee_Manager",
+    "fire": [
+      "CPUC HFTD layer 0",
+      "CPUC HFTD layer 1",
+      "CAL FIRE FHSZ layer 0",
+      "CAL FIRE FHSZ layer 1"
+    ],
+    "corridors": "OpenStreetMap via Overpass"
+  },
+  "created_utc": "2026-10-24T15:50:34+00:00"
+}

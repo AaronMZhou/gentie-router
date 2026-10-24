@@ -1,0 +1,1 @@
+{"type": "FeatureCollection", "features": [{"type": "Feature", "geometry": {"type": "Point", "coordinates": [-116.8530464, 33.0180671]}, "properties": {"name": "Creelman Substation", "voltage": "69000"}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [-116.5862355, 33.0060228]}, "properties": {"name": "Substation (unnamed)", "voltage": null}}]}

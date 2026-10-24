@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+data/raw/
+# contains your Cesium ion token - see frontend/config.example.js
+frontend/config.js
