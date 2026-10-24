@@ -17,6 +17,7 @@
     line: Cesium.Color.fromCssColorString("#ffe14d"),
     fire: { 1: "#ffd23f", 2: "#ff6b35", 3: "#e63030" },
     prot: { 1: "#9be3b5", 2: "#2fbf71" },
+    tribal: "#e0a458",
   };
 
   // ------------------------------------------------------------------ viewer
@@ -152,13 +153,28 @@
   async function loadOverlay(name) {
     if (overlays[name]) return overlays[name];
     const ds = await Cesium.GeoJsonDataSource.load(`${API}/overlays/${name}`, { clampToGround: true });
-    for (const ent of ds.entities.values) {
+    const labelled = new Set();
+    for (const ent of ds.entities.values.slice()) {
       const props = ent.properties ? ent.properties.getValue(Cesium.JulianDate.now()) : {};
       if (ent.polygon) {
-        const color = name === "fire" ? COLORS.fire[props.level] : COLORS.prot[props.level];
-        const alpha = name === "fire" ? 0.28 : props.level === 2 ? 0.5 : 0.18;
+        let color, alpha;
+        if (name === "fire") [color, alpha] = [COLORS.fire[props.level], 0.28];
+        else if (name === "tribal") [color, alpha] = [COLORS.tribal, 0.4];
+        else [color, alpha] = [COLORS.prot[props.level], props.level === 2 ? 0.5 : 0.18];
         ent.polygon.material = Cesium.Color.fromCssColorString(color || "#888").withAlpha(alpha);
         ent.polygon.outline = false;
+        if (name === "tribal" && props.name && !labelled.has(props.name)) {
+          labelled.add(props.name);
+          const hierarchy = ent.polygon.hierarchy.getValue(Cesium.JulianDate.now());
+          ds.entities.add({
+            position: Cesium.BoundingSphere.fromPoints(hierarchy.positions).center,
+            label: {
+              text: props.name, font: "600 12px system-ui, sans-serif", fillColor: Cesium.Color.fromCssColorString("#ffe0b8"),
+              outlineColor: Cesium.Color.BLACK, outlineWidth: 3, style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+              heightReference: Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: Number.POSITIVE_INFINITY,
+            },
+          });
+        }
       }
       if (ent.polyline) {
         ent.polyline.material = COLORS.line.withAlpha(0.9);
@@ -295,6 +311,12 @@
     $("rProt").textContent = p.protected_cells_crossed
       ? `${fmtKm(p.protected_km)} (${p.protected_cells_crossed} cells)` : "none";
     $("rTrans").textContent = `${p.n_transitions} (${fmtUsd(p.transition_cost_usd)})`;
+    const tribalList = (lands) => (lands || []).map((t) => `${t.name} (${fmtKm(t.km)})`).join(", ");
+    $("rTribal").textContent = p.tribal_km ? fmtKm(p.tribal_km) : "none";
+    $("tribalNote").hidden = !p.tribal_km;
+    $("tribalNote").textContent = p.tribal_km
+      ? `Crosses ${tribalList(p.tribal_lands_crossed)} — triggers tribal consultation (NHPA §106) and requires tribal consent for right-of-way (25 CFR 169).`
+      : "";
 
     $("cLenR").textContent = fmtKm(p.total_km);
     $("cLenB").textContent = fmtKm(b.length_km);
@@ -302,6 +324,8 @@
     $("cCostB").textContent = fmtUsd(b.est_cost_usd);
     $("cProtR").textContent = p.protected_km ? fmtKm(p.protected_km) : "none";
     $("cProtB").textContent = b.protected_km ? fmtKm(b.protected_km) : "none";
+    $("cTribR").textContent = p.tribal_km ? fmtKm(p.tribal_km) : "none";
+    $("cTribB").textContent = b.tribal_km ? fmtKm(b.tribal_km) : "none";
     $("cFireR").textContent = fmtKm(p.overhead_high_fire_km);
     $("cFireB").textContent = fmtKm(b.high_fire_km);
 
@@ -310,6 +334,7 @@
     if (delta >= 0) notes.push(`<span class="good">Saves ${fmtUsd(delta)} (${Math.round((100 * delta) / b.est_cost_usd)}%)</span> vs. a straight overhead line.`);
     else notes.push(`Costs ${fmtUsd(-delta)} more than a straight overhead line…`);
     if (b.protected_km > 0) notes.push(`<span class="bad">Straight line crosses ${fmtKm(b.protected_km)} of protected land</span> — likely unpermittable.`);
+    if (b.tribal_km > (p.tribal_km || 0)) notes.push(`<span class="bad">Straight line crosses tribal land:</span> ${tribalList(b.tribal_lands_crossed)}.`);
     const exposure = b.high_fire_km - p.overhead_high_fire_km;
     if (exposure > 0.05) notes.push(`Cuts overhead conductor in high-fire zones by ${fmtKm(exposure)}.`);
     $("cmpNote").innerHTML = notes.join("<br>");
@@ -409,6 +434,7 @@
   };
   $("tglFire").onchange = (e) => toggleOverlay("fire", e.target.checked);
   $("tglProtected").onchange = (e) => toggleOverlay("protected", e.target.checked);
+  $("tglTribal").onchange = (e) => toggleOverlay("tribal", e.target.checked);
   $("tglLines").onchange = (e) => toggleOverlay("powerlines", e.target.checked);
   $("tglBaseline").onchange = (e) => (layers.baseline.show = e.target.checked);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") reset(); });

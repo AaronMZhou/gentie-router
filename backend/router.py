@@ -111,6 +111,7 @@ class Router:
         xs[0], ys[0], xs[-1], ys[-1] = sx, sy, ex, ey  # snap ends to the clicked points
 
         features, towers = [], []
+        scaled_len = np.zeros_like(cell_len)  # per-cell length rescaled to the simplified geometry
         totals = dict(total_km=0.0, overhead_km=0.0, underground_km=0.0, high_fire_km=0.0,
                       overhead_high_fire_km=0.0, protected_km=0.0, segment_cost_usd=0.0)
         runs = _runs(modes)
@@ -127,6 +128,7 @@ class Router:
             raw_len = cell_len[s:e].sum()
             length_m = geom.length
             scale = length_m / raw_len if raw_len > 0 else 1.0  # stair-step -> simplified length
+            scaled_len[s:e] = cell_len[s:e] * scale
             cost = cost_by_mode[s:e] @ cell_len[s:e] * scale
             hf_km = cell_len[s:e][fire[s:e] >= C.HIGH_FIRE_LEVEL].sum() * scale / 1000
             pr_km = cell_len[s:e][prot[s:e] == 2].sum() * scale / 1000
@@ -183,6 +185,7 @@ class Router:
             "overhead_high_fire_km": round(totals["overhead_high_fire_km"], 3),
             "protected_cells_crossed": int((prot == 2).sum()),
             "protected_km": round(totals["protected_km"], 3),
+            **self.land_crossings(rows, cols, scaled_len),
             "tower_count": len(towers),
             "baseline": baseline,
             "savings_vs_baseline_usd": round(float(baseline["est_cost_usd"] - total_cost)),
@@ -191,6 +194,27 @@ class Router:
             "compute_ms": round((time.perf_counter() - t0) * 1000),
         }
         return {"type": "FeatureCollection", "properties": props, "features": features}
+
+    # ------------------------------------------------------------------ land
+    def land_crossings(self, rows, cols, lengths_m):
+        """Km by owner category plus the named PAD-US units (incl. tribal lands) a line crosses."""
+        owner = self.g.owner[rows, cols]
+        unit = self.g.landunit[rows, cols]
+        units = self.g.meta.get("land_units", [])
+        by_owner = {name: round(float(lengths_m[owner == code].sum() / 1000), 3) for code, name in C.OWNER_NAMES.items()}
+        crossed = []
+        for uid in np.unique(unit[unit > 0]):
+            u = units[uid - 1]
+            crossed.append({"name": u["name"], "owner": u["owner"], "protected": u["protected"],
+                            "km": round(float(lengths_m[unit == uid].sum() / 1000), 3)})
+        crossed.sort(key=lambda u: -u["km"])
+        return {
+            "land_km_by_owner": by_owner,
+            "federal_km": by_owner["federal"],
+            "tribal_km": by_owner["tribal"],
+            "tribal_lands_crossed": [{"name": u["name"], "km": u["km"]} for u in crossed if u["owner"] == "tribal"],
+            "land_units_crossed": crossed,
+        }
 
     # ------------------------------------------------------------------ baseline
     def baseline(self, s_xy, e_xy, s_rc, e_rc):
@@ -202,6 +226,7 @@ class Router:
         prot = self.g.protected[rr, cc]
         oh_cost = float(self.g.overhead[rr, cc].sum() * per_cell)
         best_cost = float(self.g.dollar[rr, cc].sum() * per_cell)
+        land = self.land_crossings(rr, cc, np.full(len(rr), per_cell))
         return {
             "mode": "overhead",
             "length_km": round(length_m / 1000, 3),
@@ -211,4 +236,7 @@ class Router:
             "protected_cells_crossed": int((prot == 2).sum()),
             "protected_km": round(float((prot == 2).sum() * per_cell / 1000), 3),
             "max_slope_deg": round(float(self.g.slope[rr, cc].max()), 1),
+            "federal_km": land["federal_km"],
+            "tribal_km": land["tribal_km"],
+            "tribal_lands_crossed": land["tribal_lands_crossed"],
         }

@@ -23,7 +23,7 @@
   "synthetic_layers": [],
   "sources": {
     "elevation": "USGS 3DEP ImageServer",
-    "protected": "PAD-US 3.0 Fee_Manager",
+    "land": "PAD-US 3.0 Fee_Manager",
     "fire": [
       "CPUC HFTD layer 0",
       "CPUC HFTD layer 1",
@@ -32,5 +32,359 @@
     ],
     "corridors": "OpenStreetMap via Overpass"
   },
-  "created_utc": "2026-10-24T15:50:34+00:00"
+  "land_units": [
+    {
+      "id": 1,
+      "name": "Cleveland National Forest",
+      "owner": "federal",
+      "protected": 1,
+      "designation": "NF",
+      "gap": "3"
+    },
+    {
+      "id": 2,
+      "name": "Santa Ysabel Reservation",
+      "owner": "tribal",
+      "protected": 0,
+      "designation": "TRIBL",
+      "gap": "4"
+    },
+    {
+      "id": 3,
+      "name": "Cuyamaca Rancho State Park",
+      "owner": "state",
+      "protected": 2,
+      "designation": "SP",
+      "gap": "4"
+    },
+    {
+      "id": 4,
+      "name": "Lake Henshaw",
+      "owner": "local",
+      "protected": 0,
+      "designation": "LOTH",
+      "gap": "4"
+    },
+    {
+      "id": 5,
+      "name": "San Felipe Valley Wildlife Area",
+      "owner": "state",
+      "protected": 2,
+      "designation": "SCA",
+      "gap": "2"
+    },
+    {
+      "id": 6,
+      "name": "Santa Ysabel Preserve",
+      "owner": "local",
+      "protected": 2,
+      "designation": "LCA",
+      "gap": "2"
+    },
+    {
+      "id": 7,
+      "name": "Barona Reservation",
+      "owner": "tribal",
+      "protected": 0,
+      "designation": "TRIBL",
+      "gap": "4"
+    },
+    {
+      "id": 8,
+      "name": "El Centro Field Office",
+      "owner": "federal",
+      "protected": 1,
+      "designation": "PUB",
+      "gap": "3"
+    },
+    {
+      "id": 9,
+      "name": "Canada de San Vicente",
+      "owner": "state",
+      "protected": 1,
+      "designation": "SRMA",
+      "gap": "3"
+    },
+    {
+      "id": 10,
+      "name": "Capitan Grande Reservation",
+      "owner": "tribal",
+      "protected": 0,
+      "designation": "TRIBL",
+      "gap": "4"
+    },
+    {
+      "id": 11,
+      "name": "Pamo Valley",
+      "owner": "local",
+      "protected": 0,
+      "designation": "LOTH",
+      "gap": "4"
+    },
+    {
+      "id": 12,
+      "name": "Volcan Mountain Wilderness Preserve",
+      "owner": "local",
+      "protected": 2,
+      "designation": "LCA",
+      "gap": "2"
+    },
+    {
+      "id": 13,
+      "name": "Sutherland Reservoir",
+      "owner": "local",
+      "protected": 0,
+      "designation": "LREC",
+      "gap": "4"
+    },
+    {
+      "id": 14,
+      "name": "San Dieguito River Park",
+      "owner": "local",
+      "protected": 0,
+      "designation": "LP",
+      "gap": "4"
+    },
+    {
+      "id": 15,
+      "name": "Anza-Borrego Desert State Park",
+      "owner": "state",
+      "protected": 2,
+      "designation": "SP",
+      "gap": "4"
+    },
+    {
+      "id": 16,
+      "name": "Mesa Grande Reservation",
+      "owner": "tribal",
+      "protected": 0,
+      "designation": "TRIBL",
+      "gap": "4"
+    },
+    {
+      "id": 17,
+      "name": "Mt. Gower Preserve",
+      "owner": "federal",
+      "protected": 2,
+      "designation": "LCA",
+      "gap": "2"
+    },
+    {
+      "id": 18,
+      "name": "El Capitan Reservoir",
+      "owner": "local",
+      "protected": 0,
+      "designation": "LREC",
+      "gap": "4"
+    },
+    {
+      "id": 19,
+      "name": "Lake Cuyamaca",
+      "owner": "local",
+      "protected": 0,
+      "designation": "LOTH",
+      "gap": "4"
+    },
+    {
+      "id": 20,
+      "name": "Barona Off-Reservation Trust Land",
+      "owner": "tribal",
+      "protected": 0,
+      "designation": "TRIBL",
+      "gap": "4"
+    },
+    {
+      "id": 21,
+      "name": "Palm Springs/S. Coast Field Office",
+      "owner": "federal",
+      "protected": 1,
+      "designation": "PUB",
+      "gap": "3"
+    },
+    {
+      "id": 22,
+      "name": "William Heise County Park",
+      "owner": "local",
+      "protected": 0,
+      "designation": "LP",
+      "gap": "4"
+    },
+    {
+      "id": 23,
+      "name": "Inaja And Cosmit Reservation",
+      "owner": "tribal",
+      "protected": 0,
+      "designation": "TRIBL",
+      "gap": "4"
+    },
+    {
+      "id": 24,
+      "name": "Boden Canyon Ecological Reserve",
+      "owner": "state",
+      "protected": 2,
+      "designation": "SCA",
+      "gap": "2"
+    },
+    {
+      "id": 25,
+      "name": "Barnett Ranch Preserve",
+      "owner": "local",
+      "protected": 2,
+      "designation": "LCA",
+      "gap": "2"
+    },
+    {
+      "id": 26,
+      "name": "Eagle Peak Preserve",
+      "owner": "ngo",
+      "protected": 2,
+      "designation": "PCON",
+      "gap": "2"
+    },
+    {
+      "id": 27,
+      "name": "Simon Preserve",
+      "owner": "local",
+      "protected": 2,
+      "designation": "LCA",
+      "gap": "2"
+    },
+    {
+      "id": 28,
+      "name": "Volcan Mountain Wilderness Preserve",
+      "owner": "ngo",
+      "protected": 2,
+      "designation": "PCON",
+      "gap": "2"
+    },
+    {
+      "id": 29,
+      "name": "Eagle Peak Ranch",
+      "owner": "ngo",
+      "protected": 2,
+      "designation": "PCON",
+      "gap": "2"
+    },
+    {
+      "id": 30,
+      "name": "Helix Water District Open Space",
+      "owner": "local",
+      "protected": 0,
+      "designation": "LREC",
+      "gap": "4"
+    },
+    {
+      "id": 31,
+      "name": "San Dieguito River Park",
+      "owner": "local",
+      "protected": 0,
+      "designation": "LP",
+      "gap": "4"
+    },
+    {
+      "id": 32,
+      "name": "Corral Mountain Open Space",
+      "owner": "ngo",
+      "protected": 0,
+      "designation": "PREC",
+      "gap": "4"
+    },
+    {
+      "id": 33,
+      "name": "California State Lands Commission",
+      "owner": "state",
+      "protected": 1,
+      "designation": "SRMA",
+      "gap": "3"
+    },
+    {
+      "id": 34,
+      "name": "Ramona Community Park",
+      "owner": "local",
+      "protected": 0,
+      "designation": "LP",
+      "gap": "4"
+    },
+    {
+      "id": 35,
+      "name": "Pamo Watershed",
+      "owner": "local",
+      "protected": 1,
+      "designation": "LRMA",
+      "gap": "3"
+    },
+    {
+      "id": 36,
+      "name": "Corral Mountain Open Space",
+      "owner": "ngo",
+      "protected": 0,
+      "designation": "PREC",
+      "gap": "4"
+    },
+    {
+      "id": 37,
+      "name": "Ewing Oak Preserve",
+      "owner": "ngo",
+      "protected": 2,
+      "designation": "PCON",
+      "gap": "2"
+    },
+    {
+      "id": 38,
+      "name": "Eagle Peak Ranch",
+      "owner": "ngo",
+      "protected": 2,
+      "designation": "PCON",
+      "gap": "2"
+    },
+    {
+      "id": 39,
+      "name": "Boulder Creek Ecological Reserve",
+      "owner": "state",
+      "protected": 2,
+      "designation": "SCA",
+      "gap": "2"
+    },
+    {
+      "id": 40,
+      "name": "San Dieguito River Park",
+      "owner": "ngo",
+      "protected": 0,
+      "designation": "PREC",
+      "gap": "4"
+    },
+    {
+      "id": 41,
+      "name": "Boulder Creek Preserve",
+      "owner": "ngo",
+      "protected": 2,
+      "designation": "PCON",
+      "gap": "2"
+    },
+    {
+      "id": 42,
+      "name": "Collier Park",
+      "owner": "local",
+      "protected": 0,
+      "designation": "LP",
+      "gap": "4"
+    },
+    {
+      "id": 43,
+      "name": "Jess Martin Park",
+      "owner": "local",
+      "protected": 0,
+      "designation": "LP",
+      "gap": "4"
+    },
+    {
+      "id": 44,
+      "name": "Julian Museum and Pioneer Park",
+      "owner": "local",
+      "protected": 0,
+      "designation": "LP",
+      "gap": "4"
+    }
+  ],
+  "created_utc": "2026-10-24T16:27:51+00:00"
 }

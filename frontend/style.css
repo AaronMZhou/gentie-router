@@ -55,6 +55,7 @@ button.primary:hover { filter: brightness(1.1); }
 .legend .sw, .seg-chip { margin-left: 0; }
 .sw.fire { background: linear-gradient(90deg, #ffd23f88, #ff6b3588, #e6303099); }
 .sw.prot { background: #2fbf71aa; }
+.sw.tribal { background: #e0a458aa; border: 1px solid #e0a458; }
 .sw.line { background: #ffe14d; height: 3px; }
 .sw.base { border-top: 2px solid rgba(255, 255, 255, 0.6); height: 0; }
 .sw.oh { background: var(--oh); height: 4px; }
@@ -74,6 +75,8 @@ button.primary:hover { filter: brightness(1.1); }
 .note { margin-top: 6px; font-size: 12px; }
 .note .good { color: #7ef0ae; }
 .note .bad { color: #ff9a9a; }
+.note.warn { padding: 6px 8px; border-radius: 6px; background: rgba(224, 164, 88, 0.12);
+  border: 1px solid rgba(224, 164, 88, 0.5); color: #f3cf9c; }
 
 #profile { width: 100%; height: 90px; background: rgba(255, 255, 255, 0.03); border-radius: 4px; }
 .profile-axis { display: flex; justify-content: space-between; font-size: 10px; }

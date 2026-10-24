@@ -44,7 +44,7 @@ python data/prepare_data.py --synthetic-all   # offline: synthetic placeholders 
 | Layer | Source | Grid value |
 |---|---|---|
 | Elevation → slope | USGS 3DEP ImageServer (requested directly on the UTM grid) | metres / degrees |
-| Protected areas | PAD-US 3.0 Fee (USGS ArcGIS service) | 2 = GAP 1–2 or state park / wilderness, 1 = GAP 3 multiple-use |
+| Land status | PAD-US 3.0 Fee (USGS ArcGIS service) | `protected.tif` 2 = GAP 1–2 or state park / wilderness, 1 = GAP 3 multiple-use; `owner.tif` private / federal / state / local / tribal / ngo; `landunit.tif` id of the named PAD-US unit |
 | Wildfire hazard | CPUC High Fire-Threat District (Tier 2/3) + CAL FIRE FHSZ (SRA 2007, LRA 2011), max of the two | 0–3 |
 | Corridors | OpenStreetMap via Overpass: `power=line/minor_line`, `highway=motorway/trunk/primary/secondary` | bit 1 road, bit 2 power line |
 
@@ -67,7 +67,7 @@ Open **http://localhost:8000**. The backend serves the frontend too, so this one
 
 - Click once to place the **project site**, then click again to place the **substation**. Clicking a purple substation marker snaps to it. The route appears in about 0.1–0.3 s.
 - Overhead segments are solid orange with tower glyphs every ~300 m. Underground segments are dashed cyan. The straight baseline is a faint white line.
-- Toggles: wildfire hazard, protected land, existing power lines, baseline. **Reset** (or Esc) clears the route.
+- Toggles: wildfire hazard, protected land, tribal land, existing power lines, baseline. **Reset** (or Esc) clears the route.
 
 **Demo safety:** **Load demo route** reads `frontend/demo_route.json` and needs no backend. If the backend dies, serve just the static files and the demo still works:
 
@@ -96,7 +96,7 @@ All weights are named constants in [config.py](config.py). The backend rebuilds 
 overhead    = $2M/mi    × (1 + 0.15·slope/10°)              × fire_OH[level]  × corridor_OH × land
 underground = $10M/mi   × (1 + 0.6·(slope/10°)²) [×4 if >25°] × fire_UG[level] × corridor_UG × land
 combined    = min(overhead, underground)   -> mode = whichever won
-routing     = combined × 1000 on protected land (near-impassable) × 1e4 outside bbox
+routing     = combined × 1000 on protected land (near-impassable) × 10 on tribal land × 1e4 outside bbox
 ```
 
 | Factor | Overhead | Underground |
@@ -105,6 +105,7 @@ routing     = combined × 1000 on protected land (near-impassable) × 1e4 outsid
 | Along existing power line | ×0.6 | ×0.9 |
 | Along major road | ×0.85 | ×0.6 (trench in road ROW) |
 | GAP 3 public land | ×1.25 | ×1.25 |
+| Tribal land (routing penalty only) | ×10 | ×10 |
 | OH↔UG transition (post-hoc) | $750k each | |
 
 Routing uses `skimage.graph.route_through_array` (8-connected, geometric distances) on the combined grid. The raw path's per-cell modes are smoothed: any overhead or underground run shorter than 450 m is merged into its neighbours. The path is then split into contiguous runs, and each run is simplified (20 m tolerance) and costed with its chosen mode. Transition structures are added on top of that cost.
@@ -119,7 +120,7 @@ Routing uses `skimage.graph.route_through_array` (8-connected, geometric distanc
 ## Known limitations
 
 - **Fire contrast is low.** About 95% of the region is HFTD Tier 3, so routing is driven mainly by slope, protected land and corridors, and underground wins wherever terrain is gentle or a road is available. The FHSZ SRA layer dates from 2007, and federal land gets its fire level from HFTD only.
-- **Tribal land is not penalized** (Barona, Santa Ysabel, Mesa Grande, Inaja-Cosmit, Capitan Grande). A real routing study would require tribal consent there.
+- **Tribal land** (Barona, Santa Ysabel, Mesa Grande, Inaja and Cosmit, Capitan Grande) gets a ×10 routing penalty, so it is strongly avoided but not forbidden. It is **not** added to the dollar estimate. Any crossing is listed in `tribal_lands_crossed`, and the panel warns that it triggers tribal consultation (NHPA §106) and needs tribal consent for right-of-way (25 CFR 169). Allotted and fee land outside reservation boundaries isn't in PAD-US, so it isn't flagged.
 - The optimizer prices each cell independently. Transition costs, minimum span lengths, angle structures and tower placement are applied **after** routing, so they don't influence the path itself.
 - Not modelled: parcels/ROW acquisition, habitat and waters, visual impact, geotech, existing-line capacity, access roads, line losses, the interconnection queue.
 - The 30 m grid with 8-connectivity gives stair-stepped paths. Lengths come from the simplified geometry, which is about 2–8% shorter than the raw grid path.

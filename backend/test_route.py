@@ -21,6 +21,7 @@ CASES = [
     ("DEMO  Santa Ysabel valley solar -> Creelman Sub", (-116.69, 33.10), CREELMAN_SUB),
     ("Ballena Valley solar -> Creelman Sub", (-116.75, 33.04), CREELMAN_SUB),
     ("Pine Hills site -> Julian-area Sub", (-116.63, 33.03), JULIAN_SUB),
+    ("North of Mesa Grande Res. -> Creelman Sub", (-116.76, 33.16), CREELMAN_SUB),
 ]
 
 
@@ -41,6 +42,8 @@ def show(name, fc):
           f"(best-mode {fmt_usd(b['best_mode_cost_usd'])}), high-fire {b['high_fire_km']:.2f} km, "
           f"protected {b['protected_km']:.2f} km, max slope {b['max_slope_deg']} deg")
     print(f"  savings vs baseline: {fmt_usd(p['savings_vs_baseline_usd'])}")
+    print(f"  tribal   route {p['tribal_km']:.2f} km {[t['name'] for t in p['tribal_lands_crossed']]}, "
+          f"baseline {b['tribal_km']:.2f} km {[t['name'] for t in b['tribal_lands_crossed']]}")
     for f in fc["features"]:
         q = f["properties"]
         if q["kind"] == "segment":
@@ -73,6 +76,18 @@ def main():
             assert a["properties"]["mode"] != b["properties"]["mode"], "adjacent segments share a mode"
         assert np.allclose(segs[0]["geometry"]["coordinates"][0], s, atol=1e-5)
         assert np.allclose(segs[-1]["geometry"]["coordinates"][-1], e, atol=1e-5)
+
+    # tribal penalty must reduce (or keep at zero) tribal km vs. a run without it
+    penalty = C.TRIBAL_PENALTY
+    C.TRIBAL_PENALTY = 1.0
+    no_pen = Router(build_cost_grids())
+    C.TRIBAL_PENALTY = penalty
+    print()
+    for (name, s, e), fc in zip(CASES, results):
+        without = no_pen.route(s, e)["properties"]["tribal_km"]
+        with_ = fc["properties"]["tribal_km"]
+        print(f"tribal km {name[:42]:42s} without penalty {without:5.2f} -> with x{penalty:g} {with_:5.2f}")
+        assert with_ <= without + 0.05, "tribal penalty increased tribal crossing"
 
     try:
         router.route((-117.5, 33.0), CREELMAN_SUB)

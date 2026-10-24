@@ -6,7 +6,7 @@ All costs are in USD per metre of line through that cell.
   overhead    = OH base   x slope_mult_oh x fire_mult_oh x corridor_oh x land
   underground = UG base   x slope_mult_ug x fire_mult_ug x corridor_ug x land
   dollar      = min(overhead, underground)       (est. construction cost)
-  routing     = dollar x penalty                  (penalty = protected / outside-bbox)
+  routing     = dollar x penalty                  (penalty = protected / tribal / outside-bbox)
   mode        = 0 overhead | 1 underground       (which one won per cell)
 """
 import json
@@ -27,6 +27,8 @@ class CostGrids:
     slope: np.ndarray
     fire: np.ndarray
     protected: np.ndarray
+    owner: np.ndarray         # config.OWNER_NAMES code
+    landunit: np.ndarray      # PAD-US unit id -> meta["land_units"][id - 1]
     corridor: np.ndarray
     region: np.ndarray
     overhead: np.ndarray      # $/m
@@ -56,6 +58,8 @@ def build_cost_grids():
     slope, _ = _read("slope")
     fire, _ = _read("fire")
     protected, _ = _read("protected")
+    owner, _ = _read("owner")
+    landunit, _ = _read("landunit")
     corridor, _ = _read("corridor")
     region, _ = _read("region")
 
@@ -81,10 +85,12 @@ def build_cost_grids():
     dollar = np.minimum(overhead, underground)
 
     penalty = np.ones_like(dollar)
+    penalty[owner == C.TRIBAL] = C.TRIBAL_PENALTY
     penalty[protected == 2] = C.PROTECTED_PENALTY
     penalty[region == 0] = C.OUTSIDE_REGION_PENALTY
     routing = (dollar * penalty).astype(np.float32)
 
-    return CostGrids(elevation=elevation, slope=slope, fire=fire, protected=protected, corridor=corridor,
+    return CostGrids(elevation=elevation, slope=slope, fire=fire, protected=protected, owner=owner,
+                     landunit=landunit, corridor=corridor,
                      region=region, overhead=overhead, underground=underground, dollar=dollar, mode=mode,
                      routing=routing, transform=transform, meta=meta)

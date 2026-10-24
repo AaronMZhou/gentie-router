@@ -5,7 +5,7 @@ FastAPI backend.
 
 POST /route            {start: [lon, lat], end: [lon, lat]} -> GeoJSON FeatureCollection
 GET  /bounds           study-region bbox + data provenance
-GET  /overlays/{name}  fire | protected | powerlines | roads | substations (GeoJSON)
+GET  /overlays/{name}  fire | protected | tribal | powerlines | roads | substations (GeoJSON)
 GET  /assumptions      cost-model constants
 GET  /                 the Cesium frontend (static files in frontend/)
 """
@@ -22,7 +22,7 @@ import config as C
 from backend.router import Router, RouteError
 
 LonLat = Annotated[list[float], Field(min_length=2, max_length=2, examples=[[-116.69, 33.10]])]
-OVERLAYS = {"fire", "protected", "powerlines", "roads", "substations"}
+OVERLAYS = {"fire", "protected", "tribal", "powerlines", "roads", "substations"}
 
 _router: Router | None = None
 
@@ -76,7 +76,7 @@ def assumptions():
     return {k: getattr(C, k) for k in [
         "OVERHEAD_COST_PER_MILE", "UNDERGROUND_COST_PER_MILE", "OH_SLOPE_K", "UG_SLOPE_K",
         "UG_MAX_SLOPE_DEG", "UG_STEEP_PENALTY", "OH_FIRE_MULT", "UG_FIRE_MULT", "OH_POWERLINE_MULT",
-        "OH_ROAD_MULT", "UG_POWERLINE_MULT", "UG_ROAD_MULT", "MANAGED_LAND_MULT", "PROTECTED_PENALTY",
+        "OH_ROAD_MULT", "UG_POWERLINE_MULT", "UG_ROAD_MULT", "MANAGED_LAND_MULT", "PROTECTED_PENALTY", "TRIBAL_PENALTY",
         "TRANSITION_COST_USD", "MIN_SEGMENT_M"]}
 
 

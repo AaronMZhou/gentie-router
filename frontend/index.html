@@ -34,6 +34,7 @@
       <h2>Overlays</h2>
       <label><input type="checkbox" id="tglFire"> Wildfire hazard <span class="sw fire"></span></label>
       <label><input type="checkbox" id="tglProtected"> Protected land <span class="sw prot"></span></label>
+      <label><input type="checkbox" id="tglTribal"> Tribal land <span class="sw tribal"></span></label>
       <label><input type="checkbox" id="tglLines" checked> Existing power lines <span class="sw line"></span></label>
       <label><input type="checkbox" id="tglBaseline" checked> Straight-line baseline <span class="sw base"></span></label>
     </section>
@@ -51,7 +52,9 @@
         <div><span class="k">OH in high fire</span><span class="v" id="rOhFire">–</span></div>
         <div><span class="k">Protected land</span><span class="v" id="rProt">–</span></div>
         <div><span class="k">OH/UG transitions</span><span class="v" id="rTrans">–</span></div>
+        <div><span class="k">Tribal land</span><span class="v" id="rTribal">–</span></div>
       </div>
+      <div id="tribalNote" class="note warn" hidden></div>
 
       <h3>vs. straight overhead line</h3>
       <table class="cmp">
@@ -60,6 +63,7 @@
           <tr><td>Length</td><td id="cLenR"></td><td id="cLenB"></td></tr>
           <tr><td>Cost</td><td id="cCostR"></td><td id="cCostB"></td></tr>
           <tr><td>Protected</td><td id="cProtR"></td><td id="cProtB"></td></tr>
+          <tr><td>Tribal land</td><td id="cTribR"></td><td id="cTribB"></td></tr>
           <tr><td>OH in high fire</td><td id="cFireR"></td><td id="cFireB"></td></tr>
         </tbody>
       </table>

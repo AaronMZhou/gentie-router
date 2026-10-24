@@ -58,6 +58,11 @@ PROTECTED_STRICT_GAP = {"1", "2"}                 # managed for biodiversity
 PROTECTED_STRICT_DESIGNATIONS = {"SP", "WA", "WSA", "NP", "NM", "SW"}  # state park, wilderness, ...
 PROTECTED_MANAGED_GAP = {"3"}                     # multiple-use (e.g. National Forest, BLM)
 
+# Land owner categories (owner.tif).  Anything not in PAD-US is assumed private.
+OWNER_NAMES = {0: "private", 1: "federal", 2: "state", 3: "local", 4: "tribal", 5: "ngo"}
+OWNER_FROM_PADUS = {"FED": 1, "STAT": 2, "LOC": 3, "DIST": 3, "JNT": 3, "REG": 3, "NGO": 5}
+TRIBAL = 4
+
 # Existing-corridor buffers (half-widths of the right-of-way we'd share)
 POWERLINE_BUFFER_M = 60.0
 ROAD_BUFFER_M = 30.0
@@ -98,6 +103,8 @@ UG_ROAD_MULT = 0.6
 # Land status
 MANAGED_LAND_MULT = 1.25     # GAP 3 multiple-use federal/state land (extra permitting, NEPA)
 PROTECTED_PENALTY = 1000.0   # GAP 1-2 / parks / wilderness: routing penalty (near-impassable)
+TRIBAL_PENALTY = 10.0        # reservations / trust land: routing penalty (passable only with tribal
+                             # consent + consultation; strongly avoided but not forbidden)
 OUTSIDE_REGION_PENALTY = 1e4 # cells in the projected grid but outside the lon/lat bbox
 
 # Post-processing of the route

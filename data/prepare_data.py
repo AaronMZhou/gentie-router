@@ -7,6 +7,8 @@ reprojects to config.WORK_CRS and burns it onto ONE aligned ~30 m grid:
     data/processed/elevation.tif   float32  metres (USGS 3DEP)
     data/processed/slope.tif       float32  degrees
     data/processed/protected.tif   uint8    0 none, 1 managed (GAP 3), 2 strict (GAP 1-2/park/wilderness)
+    data/processed/owner.tif       uint8    config.OWNER_NAMES: 0 private .. 4 tribal, 5 ngo
+    data/processed/landunit.tif    int32    PAD-US unit id (0 = none) -> meta.json "land_units"
     data/processed/fire.tif        uint8    0 none .. 3 very high / HFTD Tier 3
     data/processed/corridor.tif    uint8    bit 1 = major road, bit 2 = power line
     data/processed/region.tif      uint8    1 inside the lon/lat bbox
@@ -181,27 +183,61 @@ def slope_deg(dem):
 
 
 # ---------------------------------------------------------------------------
-# Layer 2: protected areas (PAD-US)
+# Layer 2: land status (PAD-US): protection class, owner category, named units
 # ---------------------------------------------------------------------------
-def fetch_protected(grid, refresh):
-    fc = cached_json("padus.geojson", lambda: arcgis_query_geojson(
-        C.PADUS_URL, out_fields="Unit_Nm,GAP_Sts,Des_Tp,Mang_Name"), refresh)
+def land_from_units(gdf, grid):
+    """Burn one id per land unit (smallest last, so inholdings win) and derive per-cell layers.
+
+    gdf columns: name, owner (code), protected (0/1/2), designation, gap; geometry in WORK_CRS.
+    Returns dict(protected, owner, unit, units, tribal_fc).
+    """
+    gdf = gdf.assign(area=gdf.geometry.area).sort_values("area", ascending=False).reset_index(drop=True)
+    unit = rasterize(((g, i + 1) for i, g in enumerate(gdf.geometry)), out_shape=(grid["nrows"], grid["ncols"]),
+                     transform=grid["transform"], fill=0, dtype="int32")
+    owner_lut = np.r_[0, gdf["owner"].to_numpy()].astype(np.uint8)
+    prot_lut = np.r_[0, gdf["protected"].to_numpy()].astype(np.uint8)
+    units = [dict(id=i + 1, name=r["name"], owner=C.OWNER_NAMES[int(r["owner"])], protected=int(r["protected"]),
+                  designation=r["designation"], gap=r["gap"]) for i, r in gdf.iterrows()]
+    tribal = gdf[gdf["owner"] == C.TRIBAL].to_crs("EPSG:4326")
+    tribal_fc = json.loads(tribal[["name", "geometry"]].to_json()) if len(tribal) else {"type": "FeatureCollection", "features": []}
+    return dict(protected=prot_lut[unit], owner=owner_lut[unit], unit=unit, units=units, tribal_fc=tribal_fc)
+
+
+def fetch_land(grid, refresh):
+    fc = cached_json("padus_v2.geojson", lambda: arcgis_query_geojson(
+        C.PADUS_URL, out_fields="Unit_Nm,GAP_Sts,Des_Tp,Mang_Name,Mang_Type,Own_Type,Own_Name"), refresh)
     gdf = to_work_gdf(fc)
     if gdf.empty:
         raise RuntimeError("PAD-US returned no features")
     gap = gdf["GAP_Sts"].astype(str)
     strict = gap.isin(C.PROTECTED_STRICT_GAP) | gdf["Des_Tp"].isin(C.PROTECTED_STRICT_DESIGNATIONS)
     managed = gap.isin(C.PROTECTED_MANAGED_GAP) & ~strict
-    arr = np.maximum(burn(gdf[managed].geometry, grid, 1), burn(gdf[strict].geometry, grid, 2))
-    names = sorted(set(gdf.loc[strict, "Unit_Nm"].dropna()))
-    print(f"    strict units: {', '.join(names)}")
-    return arr
+    tribal = (gdf["Mang_Type"] == "TRIB") | (gdf["Des_Tp"] == "TRIBL")
+    owner = gdf["Own_Type"].map(C.OWNER_FROM_PADUS).fillna(0).astype(int)
+    owner[tribal] = C.TRIBAL
+    units = gpd.GeoDataFrame(dict(
+        name=gdf["Unit_Nm"].fillna("Unnamed unit"), owner=owner,
+        protected=np.where(strict, 2, np.where(managed, 1, 0)),
+        designation=gdf["Des_Tp"].fillna(""), gap=gap), geometry=gdf.geometry, crs=C.WORK_CRS)
+    print(f"    strict units: {', '.join(sorted(set(units.loc[strict, 'name'])))}")
+    print(f"    tribal units: {', '.join(sorted(set(units.loc[tribal, 'name'])))}")
+    return land_from_units(units, grid)
 
 
-def synthetic_protected(grid):
-    managed = (smooth_noise(grid, 60) > 0.3).astype(np.uint8)
-    strict = (smooth_noise(grid, 25) > 1.6).astype(np.uint8) * 2
-    return np.maximum(managed, strict)
+def synthetic_land(grid):
+    """Noise blobs -> a managed forest, two preserves and a reservation (labelled SYNTHETIC)."""
+    t = grid["transform"]
+    shapes_ = []
+    for name, owner, prot, sigma, thr in [("SYNTHETIC National Forest", 1, 1, 60, 0.3),
+                                          ("SYNTHETIC Preserve", 3, 2, 25, 1.6),
+                                          ("SYNTHETIC Reservation", C.TRIBAL, 0, 40, 1.4)]:
+        mask = (smooth_noise(grid, sigma) > thr).astype(np.uint8)
+        geoms = [shape(g) for g, v in shapes(mask, mask=mask > 0, transform=t)]
+        if geoms:
+            shapes_.append(dict(name=name, owner=owner, protected=prot, designation="SYN", gap="",
+                                geometry=unary_union(geoms)))
+    units = gpd.GeoDataFrame(shapes_, geometry="geometry", crs=C.WORK_CRS)
+    return land_from_units(units, grid)
 
 
 # ---------------------------------------------------------------------------
@@ -394,9 +430,10 @@ def main():
     sources["elevation"] = "SYNTHETIC" if "elevation" in synthetic else "USGS 3DEP ImageServer"
     slope = slope_deg(dem)
 
-    print("Layer 2/4  protected areas (PAD-US 3.0)")
-    protected = attempt("protected", lambda: fetch_protected(grid, args.refresh), lambda: synthetic_protected(grid))
-    sources["protected"] = "SYNTHETIC" if "protected" in synthetic else "PAD-US 3.0 Fee_Manager"
+    print("Layer 2/4  land status: protected / federal / tribal (PAD-US 3.0)")
+    land = attempt("land", lambda: fetch_land(grid, args.refresh), lambda: synthetic_land(grid))
+    sources["land"] = "SYNTHETIC" if "land" in synthetic else "PAD-US 3.0 Fee_Manager"
+    protected, owner = land["protected"], land["owner"]
 
     print("Layer 3/4  wildfire hazard (CPUC HFTD + CAL FIRE FHSZ)")
     fire_res = attempt("fire", lambda: fetch_fire(grid, args.refresh), lambda: (synthetic_fire(grid, slope), ["SYNTHETIC"]))
@@ -411,6 +448,8 @@ def main():
     write_tif("elevation", dem, grid)
     write_tif("slope", slope, grid)
     write_tif("protected", protected.astype(np.uint8), grid)
+    write_tif("owner", owner.astype(np.uint8), grid)
+    write_tif("landunit", land["unit"].astype(np.int32), grid)
     write_tif("fire", fire.astype(np.uint8), grid)
     write_tif("corridor", corridor.astype(np.uint8), grid)
     write_tif("region", region, grid)
@@ -420,6 +459,7 @@ def main():
                    {1: "Moderate", 2: "High / HFTD Tier 2", 3: "Very High / HFTD Tier 3"})
     raster_overlay(protected, grid, {1, 2}, "protected",
                    {1: "Managed public land (GAP 3)", 2: "Protected (GAP 1-2 / park / wilderness)"})
+    (C.OVERLAY_DIR / "tribal.geojson").write_text(json.dumps(land["tribal_fc"]))
     write_fc("powerlines", lines["power"])
     write_fc("roads", lines["road"])
     write_fc("substations", subs)
@@ -427,7 +467,7 @@ def main():
     meta = dict(
         region_name=C.REGION_NAME, bbox=list(C.BBOX), crs=C.WORK_CRS, cell_size_m=C.CELL_SIZE_M,
         shape=[grid["nrows"], grid["ncols"]], transform=list(grid["transform"])[:6],
-        synthetic_layers=synthetic, sources=sources,
+        synthetic_layers=synthetic, sources=sources, land_units=land["units"],
         created_utc=datetime.now(timezone.utc).isoformat(timespec="seconds"),
     )
     C.META_PATH.write_text(json.dumps(meta, indent=2))
@@ -438,6 +478,7 @@ def main():
     print(f"  elevation  {dem[inside].min():.0f} - {dem[inside].max():.0f} m, "
           f"slope median {np.median(slope[inside]):.1f} deg, p90 {np.percentile(slope[inside], 90):.1f} deg")
     print(f"  protected  strict {np.mean(protected[inside] == 2):.1%}, managed {np.mean(protected[inside] == 1):.1%}")
+    print("  owner      " + ", ".join(f"{n} {np.mean(owner[inside] == k):.1%}" for k, n in C.OWNER_NAMES.items()))
     print("  fire       " + ", ".join(f"L{k} {np.mean(fire[inside] == k):.1%}" for k in range(4)))
     print(f"  corridors  road {np.mean(corridor[inside] & 1 > 0):.1%}, power {np.mean(corridor[inside] & 2 > 0):.1%}, "
           f"{len(lines['power'])} power ways, {len(lines['road'])} road ways, {len(subs)} substations")
