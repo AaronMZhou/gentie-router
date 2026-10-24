@@ -42,6 +42,9 @@ def show(name, fc):
           f"(best-mode {fmt_usd(b['best_mode_cost_usd'])}), high-fire {b['high_fire_km']:.2f} km, "
           f"protected {b['protected_km']:.2f} km, max slope {b['max_slope_deg']} deg")
     print(f"  savings vs baseline: {fmt_usd(p['savings_vs_baseline_usd'])}")
+    print(f"  fire     route mean risk {p['mean_fire_risk']:.2f}, high-hazard {p['high_risk_km']:.2f} km "
+          f"(overhead {p['overhead_high_risk_km']:.2f} km) | baseline mean risk {b['mean_fire_risk']:.2f}, "
+          f"high-hazard {b['high_risk_km']:.2f} km (all overhead)")
     print(f"  tribal   route {p['tribal_km']:.2f} km {[t['name'] for t in p['tribal_lands_crossed']]}, "
           f"baseline {b['tribal_km']:.2f} km {[t['name'] for t in b['tribal_lands_crossed']]}")
     for f in fc["features"]:
@@ -76,6 +79,9 @@ def main():
             assert a["properties"]["mode"] != b["properties"]["mode"], "adjacent segments share a mode"
         assert np.allclose(segs[0]["geometry"]["coordinates"][0], s, atol=1e-5)
         assert np.allclose(segs[-1]["geometry"]["coordinates"][-1], e, atol=1e-5)
+        # the router should never string more overhead line through high hazard than the straight line does
+        p = fc["properties"]
+        assert p["overhead_high_risk_km"] <= p["baseline"]["high_risk_km"] + 0.1, "more OH high-hazard km than baseline"
 
     # tribal penalty must reduce (or keep at zero) tribal km vs. a run without it
     penalty = C.TRIBAL_PENALTY

@@ -5,6 +5,9 @@ All costs are in USD per metre of line through that cell.
 
   overhead    = OH base   x slope_mult_oh x fire_mult_oh x corridor_oh x land
   underground = UG base   x slope_mult_ug x fire_mult_ug x corridor_ug x land
+
+  fire_mult_oh = (1 + (OH_FIRE_RISK_MAX_MULT - 1) * risk) x OH_FIRE_TIER_MULT[level]
+  fire_mult_ug = 1 + UG_FIRE_RISK_K * risk
   dollar      = min(overhead, underground)       (est. construction cost)
   routing     = dollar x penalty                  (penalty = protected / tribal / outside-bbox)
   mode        = 0 overhead | 1 underground       (which one won per cell)
@@ -25,7 +28,8 @@ MODE_NAMES = {OVERHEAD: "overhead", UNDERGROUND: "underground"}
 class CostGrids:
     elevation: np.ndarray
     slope: np.ndarray
-    fire: np.ndarray
+    fire: np.ndarray          # 0-3 regulatory tier (HFTD / FHSZ)
+    fire_risk: np.ndarray     # 0-1 continuous hazard (WHP)
     protected: np.ndarray
     owner: np.ndarray         # config.OWNER_NAMES code
     landunit: np.ndarray      # PAD-US unit id -> meta["land_units"][id - 1]
@@ -57,6 +61,7 @@ def build_cost_grids():
     elevation, transform = _read("elevation")
     slope, _ = _read("slope")
     fire, _ = _read("fire")
+    fire_risk, _ = _read("firerisk")
     protected, _ = _read("protected")
     owner, _ = _read("owner")
     landunit, _ = _read("landunit")
@@ -78,8 +83,11 @@ def build_cost_grids():
 
     land = np.where(protected == 1, C.MANAGED_LAND_MULT, 1.0)
 
-    overhead = (oh_base * oh_slope * _lut(fire, C.OH_FIRE_MULT) * oh_corr * land).astype(np.float32)
-    underground = (ug_base * ug_slope * _lut(fire, C.UG_FIRE_MULT) * ug_corr * land).astype(np.float32)
+    oh_fire = (1.0 + (C.OH_FIRE_RISK_MAX_MULT - 1.0) * fire_risk) * _lut(fire, C.OH_FIRE_TIER_MULT)
+    ug_fire = 1.0 + C.UG_FIRE_RISK_K * fire_risk
+
+    overhead = (oh_base * oh_slope * oh_fire * oh_corr * land).astype(np.float32)
+    underground = (ug_base * ug_slope * ug_fire * ug_corr * land).astype(np.float32)
 
     mode = (underground < overhead).astype(np.uint8)
     dollar = np.minimum(overhead, underground)
@@ -90,7 +98,7 @@ def build_cost_grids():
     penalty[region == 0] = C.OUTSIDE_REGION_PENALTY
     routing = (dollar * penalty).astype(np.float32)
 
-    return CostGrids(elevation=elevation, slope=slope, fire=fire, protected=protected, owner=owner,
+    return CostGrids(elevation=elevation, slope=slope, fire=fire, fire_risk=fire_risk, protected=protected, owner=owner,
                      landunit=landunit, corridor=corridor,
                      region=region, overhead=overhead, underground=underground, dollar=dollar, mode=mode,
                      routing=routing, transform=transform, meta=meta)

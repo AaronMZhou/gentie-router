@@ -5,7 +5,7 @@ FastAPI backend.
 
 POST /route            {start: [lon, lat], end: [lon, lat]} -> GeoJSON FeatureCollection
 GET  /bounds           study-region bbox + data provenance
-GET  /overlays/{name}  fire | protected | tribal | powerlines | roads | substations (GeoJSON)
+GET  /overlays/{name}  firerisk (PNG over the bbox) | fire | protected | tribal | powerlines | roads | substations (GeoJSON)
 GET  /assumptions      cost-model constants
 GET  /                 the Cesium frontend (static files in frontend/)
 """
@@ -22,7 +22,9 @@ import config as C
 from backend.router import Router, RouteError
 
 LonLat = Annotated[list[float], Field(min_length=2, max_length=2, examples=[[-116.69, 33.10]])]
-OVERLAYS = {"fire", "protected", "tribal", "powerlines", "roads", "substations"}
+OVERLAYS = {"fire": "fire.geojson", "firerisk": "firerisk.png", "protected": "protected.geojson",
+            "tribal": "tribal.geojson", "powerlines": "powerlines.geojson", "roads": "roads.geojson",
+            "substations": "substations.geojson"}
 
 _router: Router | None = None
 
@@ -75,7 +77,8 @@ def bounds():
 def assumptions():
     return {k: getattr(C, k) for k in [
         "OVERHEAD_COST_PER_MILE", "UNDERGROUND_COST_PER_MILE", "OH_SLOPE_K", "UG_SLOPE_K",
-        "UG_MAX_SLOPE_DEG", "UG_STEEP_PENALTY", "OH_FIRE_MULT", "UG_FIRE_MULT", "OH_POWERLINE_MULT",
+        "UG_MAX_SLOPE_DEG", "UG_STEEP_PENALTY", "WHP_REF", "WHP_EXPONENT", "OH_FIRE_RISK_MAX_MULT",
+        "OH_FIRE_TIER_MULT", "UG_FIRE_RISK_K", "HIGH_RISK_THRESHOLD", "OH_POWERLINE_MULT",
         "OH_ROAD_MULT", "UG_POWERLINE_MULT", "UG_ROAD_MULT", "MANAGED_LAND_MULT", "PROTECTED_PENALTY", "TRIBAL_PENALTY",
         "TRANSITION_COST_USD", "MIN_SEGMENT_M"]}
 
@@ -90,10 +93,10 @@ def route(req: RouteRequest):
 
 @app.get("/overlays/{name}")
 def overlay(name: str):
-    path = C.OVERLAY_DIR / f"{name}.geojson"
-    if name not in OVERLAYS or not path.exists():
+    if name not in OVERLAYS or not (C.OVERLAY_DIR / OVERLAYS[name]).exists():
         raise HTTPException(status_code=404, detail=f"unknown overlay '{name}'")
-    return FileResponse(path, media_type="application/geo+json")
+    path = C.OVERLAY_DIR / OVERLAYS[name]
+    return FileResponse(path, media_type="image/png" if path.suffix == ".png" else "application/geo+json")
 
 
 # Static frontend last so API routes take precedence.

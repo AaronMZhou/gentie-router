@@ -10,6 +10,7 @@ reprojects to config.WORK_CRS and burns it onto ONE aligned ~30 m grid:
     data/processed/owner.tif       uint8    config.OWNER_NAMES: 0 private .. 4 tribal, 5 ngo
     data/processed/landunit.tif    int32    PAD-US unit id (0 = none) -> meta.json "land_units"
     data/processed/fire.tif        uint8    0 none .. 3 very high / HFTD Tier 3
+    data/processed/firerisk.tif    float32  0..1 continuous hazard (USFS WHP; fallback: from fire.tif)
     data/processed/corridor.tif    uint8    bit 1 = major road, bit 2 = power line
     data/processed/region.tif      uint8    1 inside the lon/lat bbox
     data/processed/overlays/*.geojson       lon/lat polygons/lines for the map
@@ -32,7 +33,8 @@ import requests
 import rasterio
 from rasterio.features import rasterize, shapes
 from rasterio.io import MemoryFile
-from rasterio.transform import from_origin
+from rasterio.transform import from_bounds, from_origin
+from rasterio.warp import Resampling, reproject
 import geopandas as gpd
 from pyproj import Transformer
 from scipy.ndimage import gaussian_filter
@@ -140,24 +142,30 @@ def smooth_noise(grid, sigma_cells):
 # ---------------------------------------------------------------------------
 # Layer 1: elevation (USGS 3DEP) -> slope
 # ---------------------------------------------------------------------------
-def fetch_dem(grid, refresh):
-    path = C.RAW_DIR / "dem_3dep.tif"
+def export_image(url, grid, cache_name, refresh, interpolation="RSP_BilinearInterpolation"):
+    """ArcGIS ImageServer exportImage straight onto our grid (same extent, size and CRS)."""
+    path = C.RAW_DIR / cache_name
     if not path.exists() or refresh:
+        epsg = int(C.WORK_CRS.split(":")[1])
         params = dict(
             bbox=f"{grid['xmin']},{grid['ymin']},{grid['xmax']},{grid['ymax']}",
-            bboxSR=32611, imageSR=32611, size=f"{grid['ncols']},{grid['nrows']}",
-            format="tiff", pixelType="F32", noData=-9999,
-            interpolation="RSP_BilinearInterpolation", f="image",
+            bboxSR=epsg, imageSR=epsg, size=f"{grid['ncols']},{grid['nrows']}",
+            format="tiff", pixelType="F32", noData=-9999, interpolation=interpolation, f="image",
         )
-        r = requests.get(C.DEM_3DEP_URL, params=params, headers=HEADERS, timeout=180)
+        r = requests.get(url, params=params, headers=HEADERS, timeout=180)
         r.raise_for_status()
         if "tiff" not in r.headers.get("Content-Type", ""):
-            raise RuntimeError(f"3DEP returned {r.headers.get('Content-Type')}: {r.text[:200]}")
+            raise RuntimeError(f"{url} returned {r.headers.get('Content-Type')}: {r.text[:200]}")
         path.write_bytes(r.content)
     with MemoryFile(path.read_bytes()) as mf, mf.open() as ds:
-        dem = ds.read(1).astype(np.float32)
-    if dem.shape != (grid["nrows"], grid["ncols"]):
-        raise RuntimeError(f"DEM shape {dem.shape} != grid")
+        arr = ds.read(1).astype(np.float32)
+    if arr.shape != (grid["nrows"], grid["ncols"]):
+        raise RuntimeError(f"{cache_name} shape {arr.shape} != grid")
+    return arr
+
+
+def fetch_dem(grid, refresh):
+    dem = export_image(C.DEM_3DEP_URL, grid, "dem_3dep.tif", refresh)
     bad = (dem < -500) | ~np.isfinite(dem)
     if bad.mean() > 0.05:
         raise RuntimeError(f"DEM has {bad.mean():.0%} nodata")
@@ -273,6 +281,39 @@ def fetch_fire(grid, refresh):
 def synthetic_fire(grid, slope):
     z = smooth_noise(grid, 40) + 0.04 * gaussian_filter(slope, 5)
     return np.digitize(z, [-0.8, 0.0, 0.7]).astype(np.uint8)
+
+
+# ---------------------------------------------------------------------------
+# Layer 3b: continuous wildfire hazard (USFS WRC Wildfire Hazard Potential)
+# ---------------------------------------------------------------------------
+def fetch_fire_risk(grid, refresh):
+    whp = export_image(C.WHP_URL, grid, "whp_wrc_2024.tif", refresh, interpolation="RSP_NearestNeighbor")
+    whp[(whp < 0) | (whp >= 65535) | ~np.isfinite(whp)] = 0  # nodata -> non-burnable
+    if whp.max() <= 0:
+        raise RuntimeError("WHP export is empty")
+    return (np.clip(whp / C.WHP_REF, 0, 1) ** C.WHP_EXPONENT).astype(np.float32)
+
+
+def risk_from_levels(fire):
+    lut = np.array([C.FIRE_RISK_FROM_LEVEL[k] for k in range(4)], dtype=np.float32)
+    return lut[fire]
+
+
+def risk_overlay_png(risk, grid):
+    """Colour-ramped hazard image on a lon/lat grid matching BBOX, for draping in Cesium."""
+    from PIL import Image
+    w, s, e, n = C.BBOX
+    width, height = int(round((e - w) / 0.0003)), int(round((n - s) / 0.00027))
+    dst = np.zeros((height, width), np.float32)
+    reproject(risk, dst, src_transform=grid["transform"], src_crs=C.WORK_CRS,
+              dst_transform=from_bounds(w, s, e, n, width, height), dst_crs="EPSG:4326",
+              resampling=Resampling.bilinear)
+    stops = np.array([0.0, 0.35, 0.65, 1.0])
+    colors = np.array([[255, 230, 120], [255, 170, 50], [235, 70, 40], [140, 0, 30]], dtype=np.float32)
+    rgb = np.stack([np.interp(dst, stops, colors[:, i]) for i in range(3)], axis=-1)
+    alpha = np.where(dst < 0.08, 0, 50 + 160 * dst)
+    rgba = np.dstack([rgb, alpha]).clip(0, 255).astype(np.uint8)
+    Image.fromarray(rgba, "RGBA").save(C.OVERLAY_DIR / "firerisk.png", optimize=True)
 
 
 # ---------------------------------------------------------------------------
@@ -439,6 +480,26 @@ def main():
     fire_res = attempt("fire", lambda: fetch_fire(grid, args.refresh), lambda: (synthetic_fire(grid, slope), ["SYNTHETIC"]))
     fire, sources["fire"] = fire_res
 
+    print("Layer 3b    continuous wildfire hazard (USFS WRC Wildfire Hazard Potential 2024)")
+    if args.synthetic_all:
+        fire_risk = risk_from_levels(fire)
+        synthetic.append("fire_risk")
+        sources["fire_risk"] = "SYNTHETIC (derived from synthetic fire levels)"
+    else:
+        try:
+            t = time.time()
+            fire_risk = fetch_fire_risk(grid, args.refresh)
+            sources["fire_risk"] = "USFS WRC Wildfire Hazard Potential 2024 (30 m)"
+            print(f"  [ok]  fire_risk ({time.time() - t:.1f}s)")
+        except Exception as ex:
+            # fallback: the discrete HFTD/FHSZ layer above (itself possibly synthetic)
+            fire_risk = risk_from_levels(fire)
+            fallback = "SYNTHETIC fire levels" if "fire" in synthetic else "HFTD/FHSZ levels"
+            sources["fire_risk"] = f"FALLBACK: derived from {fallback}"
+            print(f"  [!!]  fire_risk download failed -> derived from {fallback} ({ex})")
+            if "fire" in synthetic:
+                synthetic.append("fire_risk")
+
     print("Layer 4/4  existing corridors (OSM power lines + major roads)")
     lines, subs = attempt("corridors", lambda: fetch_corridors(grid, args.refresh), lambda: synthetic_corridor_lines(grid))
     sources["corridors"] = "SYNTHETIC" if "corridors" in synthetic else "OpenStreetMap via Overpass"
@@ -451,6 +512,7 @@ def main():
     write_tif("owner", owner.astype(np.uint8), grid)
     write_tif("landunit", land["unit"].astype(np.int32), grid)
     write_tif("fire", fire.astype(np.uint8), grid)
+    write_tif("firerisk", fire_risk.astype(np.float32), grid)
     write_tif("corridor", corridor.astype(np.uint8), grid)
     write_tif("region", region, grid)
 
@@ -459,6 +521,7 @@ def main():
                    {1: "Moderate", 2: "High / HFTD Tier 2", 3: "Very High / HFTD Tier 3"})
     raster_overlay(protected, grid, {1, 2}, "protected",
                    {1: "Managed public land (GAP 3)", 2: "Protected (GAP 1-2 / park / wilderness)"})
+    risk_overlay_png(fire_risk, grid)
     (C.OVERLAY_DIR / "tribal.geojson").write_text(json.dumps(land["tribal_fc"]))
     write_fc("powerlines", lines["power"])
     write_fc("roads", lines["road"])
@@ -480,6 +543,9 @@ def main():
     print(f"  protected  strict {np.mean(protected[inside] == 2):.1%}, managed {np.mean(protected[inside] == 1):.1%}")
     print("  owner      " + ", ".join(f"{n} {np.mean(owner[inside] == k):.1%}" for k, n in C.OWNER_NAMES.items()))
     print("  fire       " + ", ".join(f"L{k} {np.mean(fire[inside] == k):.1%}" for k in range(4)))
+    fr = fire_risk[inside]
+    print(f"  fire risk  p10 {np.percentile(fr, 10):.2f}, median {np.median(fr):.2f}, p90 {np.percentile(fr, 90):.2f}, "
+          f">= {C.HIGH_RISK_THRESHOLD} on {np.mean(fr >= C.HIGH_RISK_THRESHOLD):.1%}  ({sources['fire_risk']})")
     print(f"  corridors  road {np.mean(corridor[inside] & 1 > 0):.1%}, power {np.mean(corridor[inside] & 2 > 0):.1%}, "
           f"{len(lines['power'])} power ways, {len(lines['road'])} road ways, {len(subs)} substations")
     if synthetic:

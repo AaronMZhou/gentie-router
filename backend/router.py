@@ -105,6 +105,7 @@ class Router:
         modes = smooth_modes(self.g.mode[rows, cols].astype(np.int8), cell_len, C.MIN_SEGMENT_M)
         cost_by_mode = np.where(modes == UNDERGROUND, self.g.underground[rows, cols], self.g.overhead[rows, cols])
         fire = self.g.fire[rows, cols]
+        risk = self.g.fire_risk[rows, cols]
         prot = self.g.protected[rows, cols]
 
         xs, ys = self.rc_to_xy(path)
@@ -113,7 +114,8 @@ class Router:
         features, towers = [], []
         scaled_len = np.zeros_like(cell_len)  # per-cell length rescaled to the simplified geometry
         totals = dict(total_km=0.0, overhead_km=0.0, underground_km=0.0, high_fire_km=0.0,
-                      overhead_high_fire_km=0.0, protected_km=0.0, segment_cost_usd=0.0)
+                      overhead_high_fire_km=0.0, high_risk_km=0.0, overhead_high_risk_km=0.0,
+                      protected_km=0.0, segment_cost_usd=0.0)
         runs = _runs(modes)
         for i, (mode, s, e) in enumerate(runs):
             # include boundary points shared with neighbouring runs so segments touch
@@ -131,16 +133,19 @@ class Router:
             scaled_len[s:e] = cell_len[s:e] * scale
             cost = cost_by_mode[s:e] @ cell_len[s:e] * scale
             hf_km = cell_len[s:e][fire[s:e] >= C.HIGH_FIRE_LEVEL].sum() * scale / 1000
+            hr_km = cell_len[s:e][risk[s:e] >= C.HIGH_RISK_THRESHOLD].sum() * scale / 1000
             pr_km = cell_len[s:e][prot[s:e] == 2].sum() * scale / 1000
 
             km = length_m / 1000
             totals["total_km"] += km
             totals[f"{MODE_NAMES[mode]}_km"] += km
             totals["high_fire_km"] += hf_km
+            totals["high_risk_km"] += hr_km
             totals["protected_km"] += pr_km
             totals["segment_cost_usd"] += cost
             if mode == OVERHEAD:
                 totals["overhead_high_fire_km"] += hf_km
+                totals["overhead_high_risk_km"] += hr_km
                 n = max(int(length_m // C.TOWER_SPACING_M), 1)
                 towers += [geom.interpolate(d) for d in np.linspace(0, length_m, n + 1)]
 
@@ -150,6 +155,8 @@ class Router:
                 "length_km": round(km, 3), "est_cost_usd": round(float(cost)),
                 "cost_per_mile_usd": round(float(cost / (km / 1.609344))) if km > 0 else 0,
                 "high_fire_km": round(hf_km, 3),
+                "high_risk_km": round(hr_km, 3),
+                "mean_fire_risk": round(float(np.average(risk[s:e], weights=cell_len[s:e] + 1e-9)), 3),
             }))
 
         n_transitions = len(runs) - 1
@@ -183,6 +190,9 @@ class Router:
             "transition_cost_usd": transition_cost,
             "high_fire_km": round(totals["high_fire_km"], 3),
             "overhead_high_fire_km": round(totals["overhead_high_fire_km"], 3),
+            "high_risk_km": round(totals["high_risk_km"], 3),
+            "overhead_high_risk_km": round(totals["overhead_high_risk_km"], 3),
+            "mean_fire_risk": round(float(np.average(risk, weights=scaled_len + 1e-9)), 3),
             "protected_cells_crossed": int((prot == 2).sum()),
             "protected_km": round(totals["protected_km"], 3),
             **self.land_crossings(rows, cols, scaled_len),
@@ -223,6 +233,7 @@ class Router:
         length_m = float(np.hypot(e_xy[0] - s_xy[0], e_xy[1] - s_xy[1]))
         per_cell = length_m / len(rr)
         fire = self.g.fire[rr, cc]
+        risk = self.g.fire_risk[rr, cc]
         prot = self.g.protected[rr, cc]
         oh_cost = float(self.g.overhead[rr, cc].sum() * per_cell)
         best_cost = float(self.g.dollar[rr, cc].sum() * per_cell)
@@ -233,6 +244,8 @@ class Router:
             "est_cost_usd": round(oh_cost),
             "best_mode_cost_usd": round(best_cost),  # same line if each cell could pick OH/UG freely
             "high_fire_km": round(float((fire >= C.HIGH_FIRE_LEVEL).sum() * per_cell / 1000), 3),
+            "high_risk_km": round(float((risk >= C.HIGH_RISK_THRESHOLD).sum() * per_cell / 1000), 3),
+            "mean_fire_risk": round(float(risk.mean()), 3),
             "protected_cells_crossed": int((prot == 2).sum()),
             "protected_km": round(float((prot == 2).sum() * per_cell / 1000), 3),
             "max_slope_deg": round(float(self.g.slope[rr, cc].max()), 1),

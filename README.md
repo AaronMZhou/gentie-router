@@ -45,7 +45,8 @@ python data/prepare_data.py --synthetic-all   # offline: synthetic placeholders 
 |---|---|---|
 | Elevation → slope | USGS 3DEP ImageServer (requested directly on the UTM grid) | metres / degrees |
 | Land status | PAD-US 3.0 Fee (USGS ArcGIS service) | `protected.tif` 2 = GAP 1–2 or state park / wilderness, 1 = GAP 3 multiple-use; `owner.tif` private / federal / state / local / tribal / ngo; `landunit.tif` id of the named PAD-US unit |
-| Wildfire hazard | CPUC High Fire-Threat District (Tier 2/3) + CAL FIRE FHSZ (SRA 2007, LRA 2011), max of the two | 0–3 |
+| Wildfire hazard (continuous) | USFS Wildfire Risk to Communities, **Wildfire Hazard Potential 2024, 30 m** (burn probability × intensity), via the imagery.geoplatform.gov ImageServer | `firerisk.tif` 0–1 = clip(WHP / 25,000)^0.5. **Fallback** if the download fails: derived from the tier layer below (0 / 0.25 / 0.5 / 1.0) |
+| Wildfire tier (regulatory) | CPUC High Fire-Threat District (Tier 2/3) + CAL FIRE FHSZ (SRA 2007, LRA 2011), max of the two | `fire.tif` 0–3 |
 | Corridors | OpenStreetMap via Overpass: `power=line/minor_line`, `highway=motorway/trunk/primary/secondary` | bit 1 road, bit 2 power line |
 
 Everything is clipped to the bbox, reprojected to EPSG:32611 (UTM 11N) and burned onto one aligned 1030 × 1001 grid of 30 m cells. If a download fails, that layer is replaced by **synthetic placeholder data**. The script prints `*** SYNTHETIC PLACEHOLDER LAYERS: ... ***`, the layer is listed in `meta.json`, and the map shows an amber "SYNTHETIC data" badge. Overpass is often busy, so the script cycles through three mirrors before giving up.
@@ -67,7 +68,7 @@ Open **http://localhost:8000**. The backend serves the frontend too, so this one
 
 - Click once to place the **project site**, then click again to place the **substation**. Clicking a purple substation marker snaps to it. The route appears in about 0.1–0.3 s.
 - Overhead segments are solid orange with tower glyphs every ~300 m. Underground segments are dashed cyan. The straight baseline is a faint white line.
-- Toggles: wildfire hazard, protected land, tribal land, existing power lines, baseline. **Reset** (or Esc) clears the route.
+- Toggles: wildfire hazard (USFS WHP, draped image), HFTD/FHSZ tiers, protected land, tribal land, existing power lines, baseline. **Reset** (or Esc) clears the route.
 
 **Demo safety:** **Load demo route** reads `frontend/demo_route.json` and needs no backend. If the backend dies, serve just the static files and the demo still works:
 
@@ -93,15 +94,19 @@ Points outside the region return `400`. Other endpoints: `GET /bounds` (bbox, ce
 All weights are named constants in [config.py](config.py). The backend rebuilds the cost grids at startup, so after changing a weight just restart the server; there's no need to re-run data prep. Each per-cell value is $ per metre of line:
 
 ```
-overhead    = $2M/mi    × (1 + 0.15·slope/10°)              × fire_OH[level]  × corridor_OH × land
-underground = $10M/mi   × (1 + 0.6·(slope/10°)²) [×4 if >25°] × fire_UG[level] × corridor_UG × land
+overhead    = $2M/mi    × (1 + 0.15·slope/10°)                × fire_OH  × corridor_OH × land
+underground = $10M/mi   × (1 + 0.6·(slope/10°)²) [×4 if >25°] × fire_UG  × corridor_UG × land
+
+fire_OH     = (1 + 3·risk) × tier_OH[level]      risk = continuous WHP hazard 0–1
+fire_UG     = 1 + 0.1·risk
 combined    = min(overhead, underground)   -> mode = whichever won
 routing     = combined × 1000 on protected land (near-impassable) × 10 on tribal land × 1e4 outside bbox
 ```
 
 | Factor | Overhead | Underground |
 |---|---|---|
-| Fire level 0 / 1 / 2 / 3 | ×1.0 / 1.25 / 2.0 / **6.0** | ×1.0 / 1.0 / 1.05 / 1.1 |
+| Wildfire hazard, risk 0 → 1 | ×1 → **×4** | ×1 → ×1.1 |
+| HFTD/FHSZ tier 0–1 / 2 / 3 (compliance: covered conductor, inspections, PSPS) | ×1.0 / 1.4 / **2.0** | — |
 | Along existing power line | ×0.6 | ×0.9 |
 | Along major road | ×0.85 | ×0.6 (trench in road ROW) |
 | GAP 3 public land | ×1.25 | ×1.25 |
@@ -119,7 +124,8 @@ Routing uses `skimage.graph.route_through_array` (8-connected, geometric distanc
 
 ## Known limitations
 
-- **Fire contrast is low.** About 95% of the region is HFTD Tier 3, so routing is driven mainly by slope, protected land and corridors, and underground wins wherever terrain is gentle or a road is available. The FHSZ SRA layer dates from 2007, and federal land gets its fire level from HFTD only.
+- **Overhead vs underground is decided mostly by the underground cost assumption.** With continuous hazard, routes thread overhead through low-hazard grass and farm valleys. That cuts overhead line in high hazard by about 95% against the straight line, at the cost of routes about 1.3× longer. It only rarely buries the line. A sweep over 80 random routes found that at $10M/mi underground almost no route uses underground. At **$5M/mi**, 84% of routes include some underground, averaging 33% of their length. Change `UNDERGROUND_COST_PER_MILE` in `config.py` to explore this.
+- Wildfire Hazard Potential reflects 2020 fuels (LANDFIRE 2.2.0), so recent burn scars may score higher than their current fuel load warrants. The FHSZ SRA layer dates from 2007, and federal land gets its tier from HFTD only.
 - **Tribal land** (Barona, Santa Ysabel, Mesa Grande, Inaja and Cosmit, Capitan Grande) gets a ×10 routing penalty, so it is strongly avoided but not forbidden. It is **not** added to the dollar estimate. Any crossing is listed in `tribal_lands_crossed`, and the panel warns that it triggers tribal consultation (NHPA §106) and needs tribal consent for right-of-way (25 CFR 169). Allotted and fee land outside reservation boundaries isn't in PAD-US, so it isn't flagged.
 - The optimizer prices each cell independently. Transition costs, minimum span lengths, angle structures and tower placement are applied **after** routing, so they don't influence the path itself.
 - Not modelled: parcels/ROW acquisition, habitat and waters, visual impact, geotech, existing-line capacity, access roads, line losses, the interconnection queue.

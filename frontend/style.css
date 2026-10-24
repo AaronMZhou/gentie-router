@@ -53,7 +53,8 @@ button.primary:hover { filter: brightness(1.1); }
 #layers label { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; }
 .sw { display: inline-block; width: 22px; height: 10px; border-radius: 2px; margin-left: auto; }
 .legend .sw, .seg-chip { margin-left: 0; }
-.sw.fire { background: linear-gradient(90deg, #ffd23f88, #ff6b3588, #e6303099); }
+.sw.fire { background: linear-gradient(90deg, #ffe678aa, #ffaa32bb, #eb4628cc, #8c001ee6); }
+.sw.hftd { background: linear-gradient(90deg, #ff6b3555, #e6303088); border: 1px dashed #e63030; }
 .sw.prot { background: #2fbf71aa; }
 .sw.tribal { background: #e0a458aa; border: 1px solid #e0a458; }
 .sw.line { background: #ffe14d; height: 3px; }

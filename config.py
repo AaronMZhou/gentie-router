@@ -47,6 +47,13 @@ HFTD_LAYERS = {0: 3, 1: 2}  # layer id -> fire level (Tier 3 extreme, Tier 2 ele
 FHSZ_URL = ("https://services.gis.ca.gov/arcgis/rest/services/Environment/"
             "Fire_Severity_Zones/MapServer")
 FHSZ_LAYERS = [0, 1]        # SRA 2007 + LRA 2011; HAZ_CODE 1=Moderate 2=High 3=Very High
+# Continuous wildfire hazard: USFS Wildfire Risk to Communities, Wildfire Hazard Potential
+# (2024, 30 m; combines annual burn probability and fire intensity). 0 = non-burnable.
+WHP_URL = ("https://imagery.geoplatform.gov/iipp/rest/services/Fire_Aviation/"
+           "USFS_EDW_RMRS_WRC_WildfireHazardPotential/ImageServer/exportImage")
+WHP_REF = 25000.0           # WHP at/above this = max risk (~p90 in this region)
+WHP_EXPONENT = 0.5          # risk = clip(WHP / WHP_REF, 0, 1) ** exponent (sqrt spreads the low end)
+FIRE_RISK_FROM_LEVEL = {0: 0.0, 1: 0.25, 2: 0.5, 3: 1.0}  # fallback when WHP is unavailable
 OVERPASS_URLS = [
     "https://overpass-api.de/api/interpreter",
     "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
@@ -84,14 +91,19 @@ UG_SLOPE_K = 0.6             # 10deg -> 1.6x, 20deg -> 3.4x
 UG_MAX_SLOPE_DEG = 25.0      # above this, trenching is impractical...
 UG_STEEP_PENALTY = 4.0       # ...so apply an extra multiplier
 
-# Wildfire multipliers by fire level
-# (0 = none, 1 = moderate, 2 = high / HFTD Tier 2, 3 = very high / HFTD Tier 3).
+# Wildfire.  Two parts:
+#  * continuous hazard  risk in [0, 1] from WHP (see above) - where fires actually burn hot
+#  * regulatory tier    fire level 0 none, 1 moderate, 2 high / HFTD Tier 2, 3 very high / Tier 3
 # Overhead captures hardening (covered conductor, fast-trip relays), PSPS
-# de-energisation risk, vegetation management and ignition liability.
-OH_FIRE_MULT = {0: 1.0, 1: 1.25, 2: 2.0, 3: 6.0}
+# de-energisation risk, vegetation management and ignition liability:
+#   oh_fire = (1 + (OH_FIRE_RISK_MAX_MULT - 1) * risk) * OH_FIRE_TIER_MULT[level]
+OH_FIRE_RISK_MAX_MULT = 4.0  # risk 0 -> 1x, risk 1 -> 4x
+# HFTD regulation: covered conductor, fast-trip settings, extra inspections, PSPS exposure
+OH_FIRE_TIER_MULT = {0: 1.0, 1: 1.0, 2: 1.4, 3: 2.0}
 # Underground lines can't start wildfires; small factor for access/permitting.
-UG_FIRE_MULT = {0: 1.0, 1: 1.0, 2: 1.05, 3: 1.1}
-HIGH_FIRE_LEVEL = 2          # fire level >= this counts toward "high_fire_km"
+UG_FIRE_RISK_K = 0.1         # ug_fire = 1 + k * risk
+HIGH_FIRE_LEVEL = 2          # fire level >= this counts toward "high_fire_km" (HFTD Tier 2/3)
+HIGH_RISK_THRESHOLD = 0.5    # risk >= this counts toward "high_risk_km"
 
 # Existing corridors (multipliers < 1 = discount).  Overhead lines like to
 # parallel existing transmission; underground cables like road right-of-way.

@@ -201,6 +201,22 @@
     return ds;
   }
 
+  let riskLayer = null; // continuous hazard: a single draped PNG over the bbox
+  async function toggleRisk(on) {
+    try {
+      if (on && !riskLayer) {
+        const [w, s, e, n] = state.bbox;
+        const provider = await Cesium.SingleTileImageryProvider.fromUrl(`${API}/overlays/firerisk`, {
+          rectangle: Cesium.Rectangle.fromDegrees(w, s, e, n),
+        });
+        riskLayer = viewer.imageryLayers.addImageryProvider(provider);
+      }
+      if (riskLayer) riskLayer.show = on;
+    } catch (err) {
+      toast("Could not load wildfire hazard overlay (backend offline?)");
+    }
+  }
+
   async function toggleOverlay(name, on) {
     try {
       const ds = on ? await loadOverlay(name) : overlays[name];
@@ -306,8 +322,10 @@
     $("rKm").textContent = fmtKm(p.total_km);
     $("rOh").textContent = fmtKm(p.overhead_km);
     $("rUg").textContent = fmtKm(p.underground_km);
+    $("rRisk").textContent = fmtKm(p.high_risk_km);
+    $("rOhRisk").textContent = fmtKm(p.overhead_high_risk_km);
     $("rFire").textContent = fmtKm(p.high_fire_km);
-    $("rOhFire").textContent = fmtKm(p.overhead_high_fire_km);
+    $("rMeanRisk").textContent = p.mean_fire_risk.toFixed(2);
     $("rProt").textContent = p.protected_cells_crossed
       ? `${fmtKm(p.protected_km)} (${p.protected_cells_crossed} cells)` : "none";
     $("rTrans").textContent = `${p.n_transitions} (${fmtUsd(p.transition_cost_usd)})`;
@@ -326,8 +344,10 @@
     $("cProtB").textContent = b.protected_km ? fmtKm(b.protected_km) : "none";
     $("cTribR").textContent = p.tribal_km ? fmtKm(p.tribal_km) : "none";
     $("cTribB").textContent = b.tribal_km ? fmtKm(b.tribal_km) : "none";
-    $("cFireR").textContent = fmtKm(p.overhead_high_fire_km);
-    $("cFireB").textContent = fmtKm(b.high_fire_km);
+    $("cFireR").textContent = fmtKm(p.overhead_high_risk_km);
+    $("cFireB").textContent = fmtKm(b.high_risk_km);
+    $("cRiskR").textContent = p.mean_fire_risk.toFixed(2);
+    $("cRiskB").textContent = b.mean_fire_risk.toFixed(2);
 
     const notes = [];
     const delta = b.est_cost_usd - p.total_cost_usd;
@@ -335,8 +355,8 @@
     else notes.push(`Costs ${fmtUsd(-delta)} more than a straight overhead line…`);
     if (b.protected_km > 0) notes.push(`<span class="bad">Straight line crosses ${fmtKm(b.protected_km)} of protected land</span> — likely unpermittable.`);
     if (b.tribal_km > (p.tribal_km || 0)) notes.push(`<span class="bad">Straight line crosses tribal land:</span> ${tribalList(b.tribal_lands_crossed)}.`);
-    const exposure = b.high_fire_km - p.overhead_high_fire_km;
-    if (exposure > 0.05) notes.push(`Cuts overhead conductor in high-fire zones by ${fmtKm(exposure)}.`);
+    const exposure = b.high_risk_km - p.overhead_high_risk_km;
+    if (exposure > 0.05) notes.push(`Cuts overhead conductor in high wildfire hazard by ${fmtKm(exposure)}.`);
     $("cmpNote").innerHTML = notes.join("<br>");
 
     renderProfile(p.profile || []);
@@ -432,7 +452,8 @@
       toast(`Could not load demo_route.json: ${err.message}`);
     }
   };
-  $("tglFire").onchange = (e) => toggleOverlay("fire", e.target.checked);
+  $("tglFire").onchange = (e) => toggleRisk(e.target.checked);
+  $("tglHftd").onchange = (e) => toggleOverlay("fire", e.target.checked);
   $("tglProtected").onchange = (e) => toggleOverlay("protected", e.target.checked);
   $("tglTribal").onchange = (e) => toggleOverlay("tribal", e.target.checked);
   $("tglLines").onchange = (e) => toggleOverlay("powerlines", e.target.checked);
@@ -452,7 +473,7 @@
         badge.textContent = `SYNTHETIC data: ${b.synthetic_layers.join(", ")}`;
         badge.className = "badge warn";
       } else {
-        badge.textContent = "Real data · 3DEP · PAD-US · CPUC HFTD · OSM";
+        badge.textContent = "Real data · 3DEP · PAD-US · USFS WHP · CPUC HFTD · OSM";
         badge.className = "badge";
       }
       toggleOverlay("substations", true);
