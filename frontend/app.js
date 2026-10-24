@@ -370,6 +370,9 @@
     for (const ds of [layers.route, layers.routeTop, layers.routeEnh, layers.hardware, layers.baseline]) ds.entities.removeAll();
     $("results").hidden = true;
     $("validation").hidden = true;
+    invProps = null;
+    invSeq++;                                   // drop any inventory answer still in flight
+    setInvOpen(false);
     redraw(600);
   }
 
@@ -381,7 +384,7 @@
     setStatus(state.backendOk ? "Click on the map to place the project site." : "Backend offline — use “Load demo route”.");
   }
 
-  async function requestRoute() {
+  async function requestRoute(frame = true) {
     state.busy = true;
     setStatus("Computing least-cost route…", true);
     try {
@@ -389,7 +392,7 @@
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ start: state.start, end: state.end }),
       });
-      showRoute(fc);
+      showRoute(fc, false, frame);
       setStatus(`Route computed in ${fc.properties.compute_ms} ms. Click the map to start a new one.`);
     } catch (err) {
       toast(`Routing failed: ${err.message}. Try “Load demo route”.`);
@@ -399,7 +402,7 @@
     }
   }
 
-  function showRoute(fc, isDemo = false) {
+  function showRoute(fc, isDemo = false, frame = true) {
     clearRoute();
     let towerLL = [];
     const segments = [];
@@ -469,6 +472,7 @@
     state.start = props.start;
     state.end = props.end;
     state.route = { start: props.start, end: props.end, box, segments, towerLL, runs, towerBearing };
+    state.routeIsDemo = isDemo;
     placeMarker("start", props.start, "Project site");
     placeMarker("end", props.end, "Substation");
     updateSteps();
@@ -476,7 +480,7 @@
     buildHardware(state.routeSeq);
     redraw();
 
-    if (Number.isFinite(box[0])) frameRoute(1.6);
+    if (frame && Number.isFinite(box[0])) frameRoute(1.6);
   }
 
   // 3D poles + crossarms + three sagging conductors per span.  Positions are absolute heights
@@ -671,6 +675,9 @@
         <span class="muted">${fmtKm(s.length_km)}</span><span class="n">${fmtUsd(s.est_cost_usd)}</span>`;
       ol.appendChild(li);
     }
+    invProps = p;
+    setInvOpen(true);
+    refreshInventory();
   }
 
   // Plain-language explanation of the demo route, built from its own numbers.
@@ -873,16 +880,17 @@
 
   // ------------------------------------------------------------------ UI wiring
   $("btnReset").onclick = () => { reset(); homeView(1.2); };
-  $("btnDemo").onclick = async () => {
+  async function loadDemo(frame = true) {
     try {
       const r = await fetch("demo_route.json");
       if (!r.ok) throw new Error(r.statusText);
-      showRoute(await r.json(), true);
+      showRoute(await r.json(), true, frame);
       setStatus("Showing precomputed demo route.");
     } catch (err) {
       toast(`Could not load demo_route.json: ${err.message}`);
     }
-  };
+  }
+  $("btnDemo").onclick = () => loadDemo();
   $("btnValidate").onclick = showValidation;
   $("tglFire").onchange = (e) => toggleRisk(e.target.checked);
   $("tglHftd").onchange = (e) => toggleOverlay("fire", e.target.checked);
@@ -906,6 +914,119 @@
     if (e.key !== "Escape") return;
     if (fly) stopFly(); else reset();
   });
+
+  // ------------------------------------------------------------------ materials & long-lead procurement
+  let invProps = null, invSeq = 0, invRestoreScroll = 0;
+  const INV_INPUTS = ["invMw", "invKv", "invNeed", "invMarket"];
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  // The procurement details live in their own panel on the right; the results panel only links to it.
+  function setInvOpen(open) {
+    $("invPanel").hidden = !open;
+    document.body.classList.toggle("inv-open", open);
+    $("btnInv").setAttribute("aria-expanded", String(open));
+  }
+  $("btnInv").addEventListener("click", () => setInvOpen($("invPanel").hidden));
+  $("invClose").addEventListener("click", () => setInvOpen(false));
+
+  async function refreshInventory() {
+    if (!invProps) return;
+    const seq = ++invSeq, sum = $("invSummary"), list = $("invList"), teaser = $("invTeaser");
+    if (!state.backendOk) {
+      sum.textContent = "The supplier simulation needs the backend (not available in demo mode).";
+      teaser.textContent = "Needs the backend";
+      list.innerHTML = "";
+      return;
+    }
+    sum.textContent = "Checking supplier availability…";
+    teaser.textContent = "Checking suppliers…";
+    try {
+      const r = await getJson("/inventory", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          start: invProps.start, end: invProps.end,
+          capacity_mw: +$("invMw").value || 100, voltage_kv: +$("invKv").value,
+          need_by_weeks: +$("invNeed").value || 0, market: $("invMarket").value,
+        }),
+      });
+      if (seq === invSeq) renderInventory(r);          // ignore answers superseded by a newer request
+    } catch (err) {
+      if (seq === invSeq) {
+        sum.textContent = `Inventory check failed: ${err.message}`;
+        teaser.textContent = "Inventory check failed";
+        list.innerHTML = "";
+      }
+    }
+  }
+
+  function renderInventory(r) {
+    const s = r.summary, e = s.earliest_construction_start_weeks;
+    const cls = { VIABLE: "good", "AT RISK": "mid", "NOT VIABLE": "bad" }[s.verdict];
+    const parts = [`<b class="${cls}">${s.verdict}</b>: ${Math.round(100 * s.p_materials_on_time)}% chance every item arrives in time for construction to start in ${r.params.need_by_weeks} wks.`];
+    if (e.p50 != null) parts.push(`Earliest start the materials allow: week ${Math.round(e.p50)} typical, week ${Math.round(e.p90)} cautious.`);
+    if (s.unqualified.length) parts.push(`<span class="bad">No qualified supplier:</span> ${s.unqualified.map(esc).join(", ")}.`);
+    if (s.critical_path_drivers.length) {
+      parts.push(`Holding up the schedule: ${s.critical_path_drivers.map((d) => `${esc(d.name)} (${Math.round(100 * d.share)}%)`).join(", ")}.`);
+    }
+    parts.push(`Materials ≈ ${fmtUsd(s.est_material_cost_usd)} (placeholder prices).`);
+    $("invSummary").innerHTML = parts.join("<br>");
+    $("invTeaser").innerHTML = `<b class="${cls}">${s.verdict}</b> · ${Math.round(100 * s.p_materials_on_time)}% on time · ${s.long_lead_lines} long-lead`;
+    const byId = Object.fromEntries(r.lines.map((l) => [l.id, l]));
+    const bidsUrl = (l) => "suppliers.html?" + new URLSearchParams({
+      item: l.id, qty: l.qty, voltage_kv: r.params.voltage_kv, capacity_mw: r.params.capacity_mw, market: r.params.market,
+      need_by_week: l.need_by_week, site_lon: invProps.start[0], site_lat: invProps.start[1],
+    });
+    $("invList").innerHTML = r.order_plan.map((o) => {
+      const l = byId[o.id];
+      const eta = l.eta_weeks.p50 == null ? "no ETA" : `ETA ${Math.round(l.eta_weeks.p50)}–${Math.round(l.eta_weeks.p90)} wks`;
+      const stock = l.in_stock_qty > 0 ? ` · ${l.in_stock_qty} ${l.unit} in stock` : "";
+      return `<li><div class="r1"><span class="nm">${o.long_lead ? '<span class="ll">LONG-LEAD</span>' : ""}${esc(l.name)}</span>
+        <span class="st ${l.status.toLowerCase().replaceAll(" ", "-")}">${l.status}</span></div>
+        <div class="r2 muted">${l.qty} ${l.unit} · ${eta}${stock}</div>
+        <div class="r3"><span class="r2">${esc(o.action)}</span>
+        <a class="vs" href="${esc(bidsUrl(l))}">View suppliers</a></div></li>`;
+    }).join("");
+    if (invRestoreScroll) { $("invPanel").scrollTop = invRestoreScroll; invRestoreScroll = 0; }
+    $("invNote").textContent = `Simulated suppliers and placeholder lead times (${r.params.trials} Monte Carlo trials; market: ${r.params.market_label}). Edit data/inventory/catalog.json.`;
+  }
+  INV_INPUTS.forEach((id) => $(id).addEventListener("change", refreshInventory));
+
+  // ------------------------------------------------------------------ coming back to the map
+  // "View suppliers" navigates in the same tab, so the route, materials inputs and camera are kept
+  // for this tab and put back when the map loads again (Back button or "Back to map").
+  const RETURN_KEY = "gentie.return";
+  window.addEventListener("pagehide", () => {
+    try {
+      if (!state.route) { sessionStorage.removeItem(RETURN_KEY); return; }
+      const c = viewer.camera;
+      sessionStorage.setItem(RETURN_KEY, JSON.stringify({
+        start: state.route.start, end: state.route.end, demo: !!state.routeIsDemo,
+        inv: Object.fromEntries(INV_INPUTS.map((id) => [id, $(id).value])),
+        invOpen: !$("invPanel").hidden, invScroll: $("invPanel").scrollTop,
+        camera: { position: Cesium.Cartesian3.clone(c.position), heading: c.heading, pitch: c.pitch, roll: c.roll },
+      }));
+    } catch (_) { /* storage blocked */ }
+  });
+
+  async function restoreReturn() {
+    let saved = null;
+    try { saved = JSON.parse(sessionStorage.getItem(RETURN_KEY)); } catch (_) { /* storage blocked */ }
+    if (!saved) return;
+    for (const [id, v] of Object.entries(saved.inv || {})) $(id).value = v;
+    invRestoreScroll = saved.invScroll || 0;
+    if (saved.demo) {
+      await loadDemo(false);
+    } else if (state.backendOk) {
+      state.start = saved.start;
+      state.end = saved.end;
+      await requestRoute(false);
+    }
+    if (!state.route) return;
+    const { position: p, heading, pitch, roll } = saved.camera;
+    viewer.camera.setView({ destination: new Cesium.Cartesian3(p.x, p.y, p.z), orientation: { heading, pitch, roll } });
+    if (!saved.invOpen) setInvOpen(false);
+    redraw(600);
+  }
 
   // ------------------------------------------------------------------ boot
   async function boot() {
@@ -935,6 +1056,7 @@
     applyView();
     homeView();
     reset();
+    await restoreReturn();
   }
   boot();
   window.gentie = { viewer, state }; // handle for the browser console / smoke test

@@ -5,6 +5,11 @@ FastAPI backend.
 
 POST /route            {start: [lon, lat], end: [lon, lat]} -> GeoJSON FeatureCollection
 GET  /stats            executor, worker pids, cache hit/miss counters
+POST /inventory        {start, end, voltage_kv?, capacity_mw?, need_by_weeks?, market?, include_terminals?}
+                       -> BOM, supplier fill, long-lead order plan, on-time probability (see backend/inventory.py)
+GET  /inventory/catalog  the simulated supplier catalog (suppliers, stock, lead-time bands, market scenarios)
+GET  /inventory/bids     ?item=&qty=&voltage_kv=&capacity_mw=&market=&need_by_week=&site_lon=&site_lat=
+                         -> mock supplier bids for one material, scored for comparison
 GET  /bounds           study-region bbox + data provenance
 GET  /overlays/{name}  firerisk (PNG over the bbox) | fire | protected | tribal | powerlines | roads | substations (GeoJSON)
 GET  /assumptions      cost-model constants
@@ -15,7 +20,8 @@ workers each load the cost grids once at startup and return pre-serialized JSON.
 Finished responses go in an in-memory LRU, and identical requests already in flight
 share one computation (single-flight).  Environment variables:
 
-    ROUTE_WORKERS     worker processes (default 8; 0 = inline in a thread pool)
+    ROUTE_WORKERS     worker processes (default: auto, up to 8 as CPUs and free memory allow;
+                      0 = inline in a thread pool)
     ROUTE_CACHE_SIZE  cached responses (default 1024; 0 disables)
 """
 import asyncio
@@ -23,8 +29,9 @@ import json
 import os
 from collections import OrderedDict
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from contextlib import asynccontextmanager
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.concurrency import run_in_threadpool
@@ -34,14 +41,28 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import config as C
-from backend import worker
+from backend import inventory, worker
 
 LonLat = Annotated[list[float], Field(min_length=2, max_length=2, examples=[[-116.69, 33.10]])]
 OVERLAYS = {"fire": "fire.geojson", "firerisk": "firerisk.png", "protected": "protected.geojson",
             "tribal": "tribal.geojson", "powerlines": "powerlines.geojson", "roads": "roads.geojson",
             "substations": "substations.geojson"}
 
-WORKERS = int(os.getenv("ROUTE_WORKERS", "8"))
+MAX_AUTO_WORKERS = 8
+WORKER_MB = 350         # measured peak ~260 MB per worker (each loads its own cost grids), plus headroom
+
+
+def auto_workers():
+    """As many workers as CPUs and free memory allow (capped at MAX_AUTO_WORKERS); 0 = run inline."""
+    try:
+        import psutil
+        free_mb = psutil.virtual_memory().available / 1e6
+    except ImportError:
+        return 2
+    return max(0, min(MAX_AUTO_WORKERS, os.cpu_count() or 1, int(free_mb // WORKER_MB) - 1))  # -1 leaves room for the API
+
+
+WORKERS = int(os.getenv("ROUTE_WORKERS") or auto_workers())
 CACHE_SIZE = int(os.getenv("ROUTE_CACHE_SIZE", "1024"))
 CACHE_KEY_DECIMALS = 5  # ~1 m: requests for the same points share a cache entry
 
@@ -97,14 +118,20 @@ state = {"pool": None, "pids": [], "meta": None, "cache": RouteCache(CACHE_SIZE)
 @asynccontextmanager
 async def lifespan(_app):
     state["meta"] = json.loads(C.META_PATH.read_text())
+    mode = None
     if WORKERS > 0:
         pool = ProcessPoolExecutor(max_workers=WORKERS, initializer=worker.init_worker)
         loop = asyncio.get_running_loop()
-        # spawn every worker (each loads the cost grids) before taking traffic
-        state["pids"] = sorted(set(await asyncio.gather(*[loop.run_in_executor(pool, worker.warm) for _ in range(WORKERS)])))
-        state["pool"] = pool
-        mode = f"process pool, {len(state['pids'])} workers"
-    else:
+        try:
+            # spawn every worker (each loads the cost grids) before taking traffic
+            state["pids"] = sorted(set(await asyncio.gather(*[loop.run_in_executor(pool, worker.warm) for _ in range(WORKERS)])))
+            state["pool"] = pool
+            mode = f"process pool, {len(state['pids'])} workers"
+        except BrokenProcessPool:                     # typically out of memory: serve inline instead of failing
+            pool.shutdown(cancel_futures=True)
+            state["pids"] = []
+            print(f"[gentie] could not start {WORKERS} route workers (low memory?); falling back to inline routing")
+    if mode is None:
         worker.init_worker()
         mode = "inline (thread pool, single process)"
     print(f"[gentie] {mode}; cache {CACHE_SIZE} entries; synthetic layers: {state['meta']['synthetic_layers'] or 'none'}")
@@ -159,11 +186,55 @@ async def _compute(start, end):
     return await run_in_threadpool(worker.route_json, start, end)
 
 
+async def _route_cached(start, end):
+    key = tuple(round(v, CACHE_KEY_DECIMALS) for v in (*start, *end))
+    return await state["cache"].get_or_compute(key, lambda: _compute(start, end))
+
+
 @app.post("/route")
 async def route(req: RouteRequest):
-    key = tuple(round(v, CACHE_KEY_DECIMALS) for v in (*req.start, *req.end))
-    status, body, cache_state = await state["cache"].get_or_compute(key, lambda: _compute(req.start, req.end))
+    status, body, cache_state = await _route_cached(req.start, req.end)
     return Response(content=body, status_code=status, media_type="application/json", headers={"X-Cache": cache_state})
+
+
+class InventoryRequest(BaseModel):
+    start: LonLat
+    end: LonLat
+    voltage_kv: Literal[69, 138] = 69
+    capacity_mw: float = Field(100, gt=0, le=1000, description="project size; sets the generator step-up transformer MVA")
+    need_by_weeks: float = Field(104, ge=0, le=520, description="weeks from today until construction must start")
+    market: Literal["current", "tight", "crisis"] = "current"
+    include_terminals: bool = Field(True, description="include breakers, switches, relays and the GSU at the two ends")
+
+
+@app.post("/inventory")
+async def inventory_assess(req: InventoryRequest):
+    """Re-uses /route (and its cache), so asking for inventory right after a route costs almost nothing extra."""
+    status, body, _ = await _route_cached(req.start, req.end)
+    if status != 200:
+        return Response(content=body, status_code=status, media_type="application/json")
+    params = req.model_dump(exclude={"start", "end"})
+    return await run_in_threadpool(inventory.assess, json.loads(body), **params)
+
+
+@app.get("/inventory/catalog")
+def inventory_catalog():
+    return inventory.load_catalog()
+
+
+@app.get("/inventory/bids")
+def inventory_bids(item: str, qty: Annotated[float, Field(gt=0)], voltage_kv: int = 69,
+                   capacity_mw: Annotated[float, Field(gt=0, le=1000)] = 100,
+                   market: Literal["current", "tight", "crisis"] = "current",
+                   need_by_week: float | None = None, site_lon: float | None = None, site_lat: float | None = None):
+    """Mock supplier bids for one BOM line (the 'View suppliers' page)."""
+    if voltage_kv not in (69, 138):          # an int Literal would not accept the query string "69"
+        raise HTTPException(422, "voltage_kv must be 69 or 138")
+    site = [site_lon, site_lat] if site_lon is not None and site_lat is not None else None
+    try:
+        return inventory.bids(item, qty, voltage_kv, capacity_mw, market, need_by_week, site)
+    except KeyError:
+        raise HTTPException(404, f"unknown item '{item}'")
 
 
 @app.get("/stats")

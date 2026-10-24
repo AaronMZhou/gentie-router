@@ -95,6 +95,11 @@
       </div>
       <ul id="triggers" class="triggers"></ul>
 
+      <h3>Materials &amp; long-lead procurement</h3>
+      <button id="btnInv" class="invopen" aria-controls="invPanel">
+        <span id="invTeaser" class="muted">Open the materials panel</span><span aria-hidden="true">›</span>
+      </button>
+
       <h3>vs. straight overhead line</h3>
       <table class="cmp">
         <thead><tr><th></th><th>Route</th><th>Straight</th></tr></thead>
@@ -126,6 +131,23 @@
       <p class="muted small">Costs are rough planning assumptions ($2M/mi overhead, $10M/mi underground,
         scaled by slope, wildfire tier, corridors &amp; land status). Not an engineering estimate.</p>
     </section>
+  </aside>
+
+  <aside id="invPanel" class="sidepanel" hidden aria-label="Materials and long-lead procurement">
+    <header class="sphead">
+      <h2>Materials &amp; long-lead procurement</h2>
+      <button id="invClose" class="x" aria-label="Close materials panel">×</button>
+    </header>
+    <div class="invctl">
+      <label>Project MW <input id="invMw" type="number" min="5" max="1000" value="100"></label>
+      <label>Line kV <select id="invKv"><option value="69">69</option><option value="138">138</option></select></label>
+      <label>Construction starts in (wks) <input id="invNeed" type="number" min="0" max="520" value="104"></label>
+      <label>Supply market <select id="invMarket"><option value="current">Current</option><option value="tight">Tight</option><option value="crisis">Crisis</option></select></label>
+    </div>
+    <div id="invSummary" class="note"></div>
+    <h3>Order plan <span class="muted small">(long-lead first)</span></h3>
+    <ul id="invList" class="inv"></ul>
+    <div id="invNote" class="note muted small"></div>
   </aside>
   <div id="toast" hidden></div>
   <div id="readout" hidden></div>
