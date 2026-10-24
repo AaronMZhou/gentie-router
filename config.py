@@ -67,6 +67,15 @@ CITY_EXTENT = (-117.45, 32.45, -116.0, 33.6)   # OSM cities/towns: San Diego Cou
 METRO_MIN_POP = 800_000      # Natural Earth places shown at any zoom (LA, Phoenix, Tijuana, Mexicali...)
 CITY_MIN_POP = 50_000        # OSM place=city shown at regional zoom
 TOWN_MARGIN_DEG = 0.12       # OSM towns (any size) within this margin of BBOX shown when zoomed in
+# Existing grid: California Energy Commission transmission lines (official, public) - OSM misses
+# ~2/3 of the SDG&E 69 kV network here.  Substations: CEC substation data (public re-host; the
+# CEC-hosted layer requires a token).  OSM lines/substations are merged in as a supplement.
+CEC_LINES_URL = ("https://services3.arcgis.com/bWPjFyq029ChCGur/ArcGIS/rest/services/"
+                 "Transmission_Line/FeatureServer/2")
+CEC_SUBSTATIONS_URL = ("https://services1.arcgis.com/4TXrdeWh0RyCqPgB/arcgis/rest/services/"
+                       "California_Electric_Substations/FeatureServer/0")
+# CEC substation voltage-class flags -> nominal kV used in labels
+CEC_SUBSTATION_KV = {"kV_33_TO_9": 69, "kV_110_TO_": 138, "kV_220_To_": 230, "kV_345_To_": 500}
 OVERPASS_URLS = [
     "https://overpass-api.de/api/interpreter",
     "https://maps.mail.ru/osm/tools/overpass/api/interpreter",

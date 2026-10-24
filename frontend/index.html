@@ -22,6 +22,15 @@
         <button id="vTop">Top View</button>
         <button id="vEnh" class="on">Enhanced</button>
       </div>
+      <div id="exagRow" class="exagrow">
+        <label for="exag">Terrain height</label>
+        <select id="exag">
+          <option value="1">1× (true scale)</option>
+          <option value="1.5" selected>1.5×</option>
+          <option value="2">2×</option>
+          <option value="3">3×</option>
+        </select>
+      </div>
     </header>
 
     <section id="steps">
@@ -43,7 +52,7 @@
       <label><input type="checkbox" id="tglHftd"> HFTD / FHSZ tiers <span class="sw hftd"></span></label>
       <label><input type="checkbox" id="tglProtected"> Protected land <span class="sw prot"></span></label>
       <label><input type="checkbox" id="tglTribal"> Tribal land <span class="sw tribal"></span></label>
-      <label><input type="checkbox" id="tglLines" checked> Existing power lines <span class="sw line"></span></label>
+      <label><input type="checkbox" id="tglLines" checked> Existing power lines (69 / 138 kV) <span class="sw line"></span></label>
       <label><input type="checkbox" id="tglBaseline" checked> Straight-line baseline <span class="sw base"></span></label>
       <label><input type="checkbox" id="tglContours"> Elevation contours (100 m) <span class="sw contour"></span></label>
     </section>
@@ -112,7 +121,7 @@
       <div><span class="sw oh"></span> Overhead (towers every ~300 m)</div>
       <div><span class="sw ug"></span> Underground</div>
       <div><span class="sw real"></span> Real existing line (validation)</div>
-      <p class="muted small">Enhanced view: terrain ×1.5, 3D towers and conductors appear when zoomed in (&lt; 9 km).<br>
+      <p class="muted small">Enhanced view: terrain height adjustable (default 1.5×), 3D towers and conductors appear when zoomed in (&lt; 9 km).<br>
         Left-drag pan · Right-drag look around · Wheel zoom · Ctrl/middle-drag tilt</p>
       <p class="muted small">Costs are rough planning assumptions ($2M/mi overhead, $10M/mi underground,
         scaled by slope, wildfire tier, corridors &amp; land status). Not an engineering estimate.</p>

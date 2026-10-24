@@ -423,6 +423,57 @@ def synthetic_corridor_lines(grid):
     return feats, subs
 
 
+def fetch_cec_grid(refresh):
+    """CEC transmission lines + substations as lon/lat features (operational assets only)."""
+    lines_fc = cached_json("cec_lines.geojson", lambda: arcgis_query_geojson(
+        C.CEC_LINES_URL, out_fields="Name,kV_Sort,Owner,Status,Circuit,Type"), refresh)
+    lines = []
+    for f in lines_fc["features"]:
+        p = f.get("properties") or {}
+        if f.get("geometry") and (p.get("Status") or "Operational") == "Operational":
+            lines.append({"type": "Feature", "geometry": f["geometry"], "properties": {
+                "kind": "power", "source": "CEC", "name": p.get("Name"), "kv": p.get("kV_Sort"),
+                "owner": p.get("Owner"), "circuit": p.get("Circuit"), "line_type": p.get("Type")}})
+    if not lines:
+        raise RuntimeError("CEC returned no transmission lines")
+    subs_fc = cached_json("cec_substations.geojson", lambda: arcgis_query_geojson(
+        C.CEC_SUBSTATIONS_URL, out_fields="Substati_1,Status,Map_Owner," + ",".join(C.CEC_SUBSTATION_KV)), refresh)
+    subs = []
+    for f in subs_fc["features"]:
+        p = f.get("properties") or {}
+        if not f.get("geometry") or (p.get("Status") or "Operational") != "Operational":
+            continue
+        kvs = sorted(kv for flag, kv in C.CEC_SUBSTATION_KV.items() if str(p.get(flag, "")).strip().upper() == "YES")
+        subs.append({"type": "Feature", "geometry": f["geometry"], "properties": {
+            "name": f"{p.get('Substati_1', '').strip() or 'Substation'} Substation", "owner": p.get("Map_Owner"),
+            "voltage_label": "/".join(map(str, kvs)) + " kV" if kvs else None, "source": "CEC"}})
+    print(f"    CEC: {len(lines)} transmission lines, {len(subs)} substations")
+    return lines, subs
+
+
+def merge_grid(osm_lines, osm_subs, cec_lines, cec_subs):
+    """Overlay lines = all CEC lines + the parts of OSM lines not already within 150 m of a CEC line.
+    Substations = CEC + OSM ones more than 300 m from any CEC substation."""
+    cec = to_work_gdf({"type": "FeatureCollection", "features": cec_lines})
+    osm = to_work_gdf({"type": "FeatureCollection", "features": osm_lines})
+    covered = unary_union(list(cec.geometry.buffer(150))) if len(cec) else None
+    extra = []
+    if len(osm):
+        osm = osm.assign(geometry=osm.geometry.difference(covered) if covered is not None else osm.geometry)
+        osm = osm[~osm.geometry.is_empty & (osm.geometry.length > 100)]
+        osm["source"] = "OSM"
+        extra = json.loads(osm.to_crs("EPSG:4326").to_json())["features"]
+    cec_ll = json.loads(cec.to_crs("EPSG:4326").to_json())["features"] if len(cec) else []
+    to_utm = Transformer.from_crs("EPSG:4326", C.WORK_CRS, always_xy=True)
+    cec_pts = [to_utm.transform(*s["geometry"]["coordinates"]) for s in cec_subs]
+    keep_osm = [s for s in osm_subs if all(np.hypot(*(np.subtract(to_utm.transform(*s["geometry"]["coordinates"]), q))) > 300
+                                           for q in cec_pts)]
+    for s in keep_osm:
+        v = s["properties"].get("voltage")
+        s["properties"].update(source="OSM", voltage_label=f"{round(int(v) / 1000)} kV" if v and str(v).isdigit() else None)
+    return cec_ll + extra, cec_subs + keep_osm
+
+
 def rasterize_corridors(lines, grid):
     out = np.zeros((grid["nrows"], grid["ncols"]), np.uint8)
     for kind, bit, buf in [("road", 1, C.ROAD_BUFFER_M), ("power", 2, C.POWERLINE_BUFFER_M)]:
@@ -535,7 +586,24 @@ def main():
     print("Layer 4/4  existing corridors (OSM power lines + major roads)")
     lines, subs = attempt("corridors", lambda: fetch_corridors(grid, args.refresh), lambda: synthetic_corridor_lines(grid))
     sources["corridors"] = "SYNTHETIC" if "corridors" in synthetic else "OpenStreetMap via Overpass"
-    corridor = rasterize_corridors(lines, grid)
+    osm_power = list(lines["power"])
+
+    print("Layer 4b    existing grid (California Energy Commission transmission lines + substations)")
+    if args.synthetic_all:
+        grid_lines, subs_merged = osm_power, subs
+    else:
+        try:
+            t = time.time()
+            cec_lines, cec_subs = fetch_cec_grid(args.refresh)
+            grid_lines, subs_merged = merge_grid(osm_power, subs, cec_lines, cec_subs)
+            sources["grid"] = "CEC transmission lines + substations, OSM supplement"
+            print(f"  [ok]  grid ({time.time() - t:.1f}s): {len(grid_lines)} line features, {len(subs_merged)} substations")
+        except Exception as ex:
+            grid_lines, subs_merged = osm_power, subs
+            sources["grid"] = "OSM only (CEC download failed)"
+            print(f"  [!!]  CEC grid download failed -> OSM lines only ({ex})")
+    # corridor raster: every known line (CEC and raw OSM; overlaps don't matter in a raster)
+    corridor = rasterize_corridors({"road": lines["road"], "power": osm_power + [f for f in grid_lines if f["properties"].get("source") == "CEC"]}, grid)
 
     print("Layer 5    parcels (estimated from USFS WRC building counts; real parcels if data/raw/parcels.* exists)")
     parcel_density = attempt("parcels", lambda: fetch_parcel_density(grid, args.refresh),
@@ -569,9 +637,10 @@ def main():
                    {1: "Managed public land (GAP 3)", 2: "Protected (GAP 1-2 / park / wilderness)"})
     risk_overlay_png(fire_risk, grid)
     (C.OVERLAY_DIR / "tribal.geojson").write_text(json.dumps(land["tribal_fc"]))
-    write_fc("powerlines", lines["power"])
+    write_fc("powerlines", grid_lines)       # display: CEC + OSM-only extras
+    write_fc("powerlines_osm", osm_power)    # raw OSM ways (validation reconstructs lines by OSM ref)
     write_fc("roads", lines["road"])
-    write_fc("substations", subs)
+    write_fc("substations", subs_merged)
 
     meta = dict(
         region_name=C.REGION_NAME, bbox=list(C.BBOX), crs=C.WORK_CRS, cell_size_m=C.CELL_SIZE_M,
@@ -596,7 +665,8 @@ def main():
     print(f"  parcels    est. parcels/km p10 {np.percentile(pdn, 10):.1f}, median {np.median(pdn):.1f}, "
           f"p90 {np.percentile(pdn, 90):.1f}  ({sources['parcels']})")
     print(f"  corridors  road {np.mean(corridor[inside] & 1 > 0):.1%}, power {np.mean(corridor[inside] & 2 > 0):.1%}, "
-          f"{len(lines['power'])} power ways, {len(lines['road'])} road ways, {len(subs)} substations")
+          f"{len(osm_power)} OSM power ways + {len(grid_lines)} merged grid lines, {len(lines['road'])} road ways, "
+          f"{len(subs_merged)} substations ({', '.join(x['properties']['name'] for x in subs_merged)})")
     if synthetic:
         print(f"\n*** SYNTHETIC PLACEHOLDER LAYERS: {', '.join(synthetic)} ***")
     else:

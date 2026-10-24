@@ -14,7 +14,8 @@
     end: Cesium.Color.fromCssColorString("#b57cff"),
     bbox: Cesium.Color.fromCssColorString("#ffffff").withAlpha(0.8),
     baseline: Cesium.Color.WHITE.withAlpha(0.55),
-    line: Cesium.Color.fromCssColorString("#ffe14d"),
+    line: Cesium.Color.fromCssColorString("#ffe14d"),     // existing 69 kV
+    line138: Cesium.Color.fromCssColorString("#fff6b0"),  // existing 138 kV (pale, thicker - not the route orange)
     fire: { 1: "#ffd23f", 2: "#ff6b35", 3: "#e63030" },
     prot: { 1: "#9be3b5", 2: "#2fbf71" },
     tribal: "#e0a458",
@@ -80,9 +81,14 @@
   const state = { bbox: cfg.FALLBACK_BBOX || [-116.89, 32.94, -116.56, 33.21], start: null, end: null,
                   busy: false, backendOk: false, view: "enhanced", route: null };
   try { if (localStorage.getItem("gentie.view") === "top") state.view = "top"; } catch (_) { /* storage blocked */ }
+  const EXAGGERATIONS = [1, 1.5, 2, 3];
+  state.exaggeration = 1.5; // Enhanced view terrain height scale (dropdown)
+  try {
+    const saved = Number(localStorage.getItem("gentie.exaggeration"));
+    if (EXAGGERATIONS.includes(saved)) state.exaggeration = saved;
+  } catch (_) { /* storage blocked */ }
 
   // Enhanced view
-  const ENH_EXAGGERATION = 1.5;
   const TOWER_H = 26;               // conductor attachment height above ground (m)
   const PHASE_OFFSETS = [-5, 0, 5]; // conductor positions along the crossarm (m)
   const SAG_FRAC = 0.025;           // mid-span sag as a fraction of span length
@@ -243,9 +249,10 @@
           });
         }
       }
-      if (ent.polyline) {
-        ent.polyline.material = COLORS.line.withAlpha(0.9);
-        ent.polyline.width = 2.5;
+      if (ent.polyline) { // existing grid: CEC transmission lines by voltage; OSM-only extras thinner
+        const kv = Number(props.kv) || 0;
+        ent.polyline.material = (kv >= 115 ? COLORS.line138 : COLORS.line).withAlpha(props.source === "CEC" ? 0.95 : 0.7);
+        ent.polyline.width = kv >= 115 ? 4 : props.source === "CEC" ? 2.5 : 1.8;
       }
       if (ent.billboard) { // substations: replace default pin with a labelled marker
         ent.billboard = undefined;
@@ -254,7 +261,7 @@
           heightReference: Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: Number.POSITIVE_INFINITY,
         });
         ent.label = new Cesium.LabelGraphics({
-          text: `${props.name}${props.voltage ? ` (${Math.round(+props.voltage / 1000)} kV)` : ""}`,
+          text: `${props.name}${props.voltage_label ? ` (${props.voltage_label})` : ""}`,
           font: "12px system-ui, sans-serif", fillColor: Cesium.Color.WHITE, outlineColor: Cesium.Color.BLACK,
           outlineWidth: 3, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(0, -16),
           heightReference: Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: Number.POSITIVE_INFINITY,
@@ -307,7 +314,7 @@
   // Enhanced: 3D terrain x1.5, sun lighting, shadows, HDR.  Nothing here changes while the camera moves.
   async function applyViewSettings() {
     const enh = state.view === "enhanced";
-    scene.verticalExaggeration = enh ? ENH_EXAGGERATION : 1;
+    scene.verticalExaggeration = enh ? state.exaggeration : 1;
     globe.enableLighting = enh;
     scene.highDynamicRange = enh;
     viewer.shadows = enh;
@@ -334,6 +341,8 @@
     layers.routeEnh.show = layers.hardware.show = enh;
     $("vTop").classList.toggle("on", !enh);
     $("vEnh").classList.toggle("on", enh);
+    $("exagRow").hidden = !enh;
+    $("exag").value = String(state.exaggeration);
     $("readout").hidden = true;
     try { localStorage.setItem("gentie.view", state.view); } catch (_) { /* storage blocked */ }
     await applyViewSettings();
@@ -346,7 +355,7 @@
     const cam = Cesium.Cartographic.clone(viewer.camera.positionCartographic);
     const ground = Cesium.Cartographic.clone(cam);
     try { await Cesium.sampleTerrain(worldTerrain, 11, [ground]); } catch (_) { return; }
-    const minH = (ground.height || 0) * ENH_EXAGGERATION + 150;
+    const minH = (ground.height || 0) * state.exaggeration + 150;
     if (cam.height < minH) {
       viewer.camera.setView({ destination: Cesium.Cartesian3.fromRadians(cam.longitude, cam.latitude, minH),
         orientation: { heading: viewer.camera.heading, pitch: viewer.camera.pitch, roll: 0 } });
@@ -476,12 +485,16 @@
   async function buildHardware(seq) {
     const r = state.route;
     if (!r || !r.towerLL.length) return;
-    await terrainReady;
-    const carto = r.towerLL.map(([lon, lat]) => Cesium.Cartographic.fromDegrees(lon, lat));
-    try { if (worldTerrain) await Cesium.sampleTerrainMostDetailed(worldTerrain, carto); } catch (_) { /* flat fallback */ }
-    if (seq !== state.routeSeq) return; // a newer route replaced this one
-    const e = ENH_EXAGGERATION;
-    const ground = carto.map((c) => (c.height || 0) * e);
+    if (!r.towerHeights) { // sample real terrain once per route; rebuilds (new exaggeration) reuse it
+      await terrainReady;
+      const carto = r.towerLL.map(([lon, lat]) => Cesium.Cartographic.fromDegrees(lon, lat));
+      try { if (worldTerrain) await Cesium.sampleTerrainMostDetailed(worldTerrain, carto); } catch (_) { /* flat fallback */ }
+      if (seq !== state.routeSeq) return; // a newer route replaced this one
+      r.towerHeights = carto.map((c) => c.height || 0);
+    }
+    layers.hardware.entities.removeAll();
+    const e = state.exaggeration;
+    const ground = r.towerHeights.map((h) => h * e);
     const steel = Cesium.Color.fromCssColorString("#c9ced4");
     const wire = Cesium.Color.fromCssColorString("#2b2f33").withAlpha(0.9);
     const ents = layers.hardware.entities;
@@ -881,6 +894,14 @@
   $("vTop").onclick = () => { if (state.view !== "top") { stopFly(); state.view = "top"; applyView(); } };
   $("vEnh").onclick = () => { if (state.view !== "enhanced") { stopFly(); state.view = "enhanced"; applyView(); } };
   $("btnFly").onclick = startFly;
+  $("exag").onchange = async (ev) => {
+    stopFly();
+    state.exaggeration = Number(ev.target.value);
+    try { localStorage.setItem("gentie.exaggeration", String(state.exaggeration)); } catch (_) { /* storage blocked */ }
+    await applyViewSettings();
+    buildHardware(state.routeSeq); // towers/conductors sit on the rescaled terrain
+    liftCameraAboveTerrain();
+  };
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     if (fly) stopFly(); else reset();
@@ -899,7 +920,7 @@
         badge.textContent = `SYNTHETIC data: ${b.synthetic_layers.join(", ")}`;
         badge.className = "badge warn";
       } else {
-        badge.textContent = "Real data · 3DEP · PAD-US · USFS WHP · CPUC HFTD · OSM";
+        badge.textContent = "Real data · 3DEP · PAD-US · USFS WHP · CPUC HFTD · CEC · OSM";
         badge.className = "badge";
       }
       toggleOverlay("substations", true);

@@ -17,6 +17,7 @@ import json
 from datetime import datetime, timezone
 
 import geopandas as gpd
+import pandas as pd
 import numpy as np
 from rasterio.features import rasterize
 from shapely.geometry import LineString, Point, box, mapping
@@ -35,8 +36,12 @@ SAMPLE_M = 10.0
 
 
 def load_power_lines():
-    gdf = gpd.read_file(C.OVERLAY_DIR / "powerlines.geojson")
+    """Raw OSM ways (line refs like '637' identify the real lines) plus the CEC lines, which have
+    no per-line ids but duplicate the same circuits."""
+    gdf = gpd.read_file(C.OVERLAY_DIR / "powerlines_osm.geojson")
     gdf["tokens"] = gdf["name"].fillna("").str.split(";")
+    grid = gpd.read_file(C.OVERLAY_DIR / "powerlines.geojson")
+    gdf.attrs["cec"] = grid[grid["source"] == "CEC"] if "source" in grid else grid.iloc[0:0]
     return gdf
 
 
@@ -53,21 +58,28 @@ def real_line(gdf, line_id):
     parts = [g for g in getattr(clipped, "geoms", [clipped]) if isinstance(g, LineString)]
     line = max(parts, key=lambda g: g.length)
     # orient so the line ENDS at the substation end (start = "project", end = "substation" in the UI)
-    subs = gpd.read_file(C.OVERLAY_DIR / "substations.geojson").geometry
+    subs = gpd.read_file(C.OVERLAY_DIR / "substations.geojson").geometry.to_crs(C.WORK_CRS)
     if len(subs):
-        d0 = subs.distance(Point(line.coords[0])).min()
-        d1 = subs.distance(Point(line.coords[-1])).min()
+        ends = gpd.GeoSeries([Point(line.coords[0]), Point(line.coords[-1])], crs="EPSG:4326").to_crs(C.WORK_CRS)
+        d0, d1 = subs.distance(ends.iloc[0]).min(), subs.distance(ends.iloc[1]).min()
         if d0 < d1:
             line = LineString(line.coords[::-1])
     return line
 
 
 def corridor_without(gdf, line_id, grids):
-    """Corridor raster with roads as-is and every power line except `line_id`."""
+    """Corridor raster with roads as-is and every power line except `line_id`.  The CEC data
+    duplicates the same circuit without OSM's id, so anything within 200 m of the hidden line is
+    cut out of every other line too - otherwise the duplicate would leak the answer."""
     corridor = (grids.corridor & 1).astype(np.uint8)
-    others = gdf[~gdf["tokens"].apply(lambda t: line_id in t)].to_crs(C.WORK_CRS)
-    if len(others):
-        corridor |= rasterize(((g.buffer(C.POWERLINE_BUFFER_M), 2) for g in others.geometry),
+    target = gdf[gdf["tokens"].apply(lambda t: line_id in t)].to_crs(C.WORK_CRS)
+    hide = unary_union(list(target.geometry)).buffer(200)
+    others = pd.concat([gdf[~gdf["tokens"].apply(lambda t: line_id in t)].to_crs(C.WORK_CRS).geometry,
+                        gdf.attrs["cec"].to_crs(C.WORK_CRS).geometry])
+    others = [g.difference(hide) for g in others]
+    others = [g for g in others if not g.is_empty]
+    if others:
+        corridor |= rasterize(((g.buffer(C.POWERLINE_BUFFER_M), 2) for g in others),
                               out_shape=corridor.shape, transform=grids.transform, fill=0,
                               dtype="uint8", all_touched=True)
     return corridor
