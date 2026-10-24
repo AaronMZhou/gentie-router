@@ -56,8 +56,11 @@ def _lut(levels, table):
     return lut[np.clip(levels, 0, len(lut) - 1)]
 
 
-def build_cost_grids(corridor_override=None):
-    """corridor_override: replacement corridor raster (used by leave-one-out validation)."""
+def build_cost_grids(corridor_override=None, overrides=None):
+    """corridor_override: replacement corridor raster (used by leave-one-out validation).
+    overrides: {CONFIG_NAME: value} replacing cost-model constants (strategy presets, config.PRESETS)."""
+    overrides = overrides or {}
+    _c = lambda name: overrides.get(name, getattr(C, name))
     if not C.META_PATH.exists():
         raise FileNotFoundError("Run `python data/prepare_data.py` first (data/processed is missing).")
     meta = json.loads(C.META_PATH.read_text())
@@ -73,23 +76,23 @@ def build_cost_grids(corridor_override=None):
     parcel_density, _ = _read("parceldens")
     parcel_id = _read("parcelid")[0] if (C.PROCESSED_DIR / "parcelid.tif").exists() else None
 
-    oh_base = C.OVERHEAD_COST_PER_MILE / C.METERS_PER_MILE
-    ug_base = C.UNDERGROUND_COST_PER_MILE / C.METERS_PER_MILE
+    oh_base = _c("OVERHEAD_COST_PER_MILE") / _c("METERS_PER_MILE")
+    ug_base = _c("UNDERGROUND_COST_PER_MILE") / _c("METERS_PER_MILE")
 
     s10 = slope / 10.0
-    oh_slope = 1.0 + C.OH_SLOPE_K * s10
-    ug_slope = 1.0 + C.UG_SLOPE_K * s10 ** 2
-    ug_slope = np.where(slope > C.UG_MAX_SLOPE_DEG, ug_slope * C.UG_STEEP_PENALTY, ug_slope)
+    oh_slope = 1.0 + _c("OH_SLOPE_K") * s10
+    ug_slope = 1.0 + _c("UG_SLOPE_K") * s10 ** 2
+    ug_slope = np.where(slope > _c("UG_MAX_SLOPE_DEG"), ug_slope * _c("UG_STEEP_PENALTY"), ug_slope)
 
     road = (corridor & 1) > 0
     power = (corridor & 2) > 0
-    oh_corr = np.minimum(np.where(power, C.OH_POWERLINE_MULT, 1.0), np.where(road, C.OH_ROAD_MULT, 1.0))
-    ug_corr = np.minimum(np.where(power, C.UG_POWERLINE_MULT, 1.0), np.where(road, C.UG_ROAD_MULT, 1.0))
+    oh_corr = np.minimum(np.where(power, _c("OH_POWERLINE_MULT"), 1.0), np.where(road, _c("OH_ROAD_MULT"), 1.0))
+    ug_corr = np.minimum(np.where(power, _c("UG_POWERLINE_MULT"), 1.0), np.where(road, _c("UG_ROAD_MULT"), 1.0))
 
-    land = np.where(protected == 1, C.MANAGED_LAND_MULT, 1.0)
+    land = np.where(protected == 1, _c("MANAGED_LAND_MULT"), 1.0)
 
-    oh_fire = (1.0 + (C.OH_FIRE_RISK_MAX_MULT - 1.0) * fire_risk) * _lut(fire, C.OH_FIRE_TIER_MULT)
-    ug_fire = 1.0 + C.UG_FIRE_RISK_K * fire_risk
+    oh_fire = (1.0 + (_c("OH_FIRE_RISK_MAX_MULT") - 1.0) * fire_risk) * _lut(fire, _c("OH_FIRE_TIER_MULT"))
+    ug_fire = 1.0 + _c("UG_FIRE_RISK_K") * fire_risk
 
     overhead = (oh_base * oh_slope * oh_fire * oh_corr * land).astype(np.float32)
     underground = (ug_base * ug_slope * ug_fire * ug_corr * land).astype(np.float32)
@@ -98,10 +101,10 @@ def build_cost_grids(corridor_override=None):
     dollar = np.minimum(overhead, underground)
 
     penalty = np.ones_like(dollar)
-    penalty[owner == C.TRIBAL] = C.TRIBAL_PENALTY
-    penalty[protected == 2] = C.PROTECTED_PENALTY
-    penalty[(protected == 2) & power] = C.PROTECTED_IN_CORRIDOR_PENALTY
-    penalty[region == 0] = C.OUTSIDE_REGION_PENALTY
+    penalty[owner == _c("TRIBAL")] = _c("TRIBAL_PENALTY")
+    penalty[protected == 2] = _c("PROTECTED_PENALTY")
+    penalty[(protected == 2) & power] = _c("PROTECTED_IN_CORRIDOR_PENALTY")
+    penalty[region == 0] = _c("OUTSIDE_REGION_PENALTY")
     routing = (dollar * penalty).astype(np.float32)
 
     return CostGrids(elevation=elevation, slope=slope, fire=fire, fire_risk=fire_risk, protected=protected, owner=owner,

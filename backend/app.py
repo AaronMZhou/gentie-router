@@ -3,7 +3,8 @@ FastAPI backend.
 
     python -m uvicorn backend.app:app --port 8000
 
-POST /route            {start: [lon, lat], end: [lon, lat]} -> GeoJSON FeatureCollection
+POST /route            {start: [lon, lat], end: [lon, lat], preset?: balanced|avoid_fire|cheapest|underground}
+                       -> GeoJSON FeatureCollection
 GET  /stats            executor, worker pids, cache hit/miss counters
 GET  /bounds           study-region bbox + data provenance
 GET  /overlays/{name}  firerisk (PNG over the bbox) | fire | protected | tribal | powerlines | roads | substations (GeoJSON)
@@ -120,6 +121,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 class RouteRequest(BaseModel):
     start: LonLat
     end: LonLat
+    preset: str = "balanced"  # validated by the router (unknown -> 400)
 
 
 @app.get("/health")
@@ -145,24 +147,25 @@ def bounds():
 
 @app.get("/assumptions")
 def assumptions():
-    return {k: getattr(C, k) for k in [
+    presets = {name: {"label": p["label"], "blurb": p["blurb"]} for name, p in C.PRESETS.items()}
+    return {"PRESETS": presets, **{k: getattr(C, k) for k in [
         "OVERHEAD_COST_PER_MILE", "UNDERGROUND_COST_PER_MILE", "OH_SLOPE_K", "UG_SLOPE_K",
         "UG_MAX_SLOPE_DEG", "UG_STEEP_PENALTY", "WHP_REF", "WHP_EXPONENT", "OH_FIRE_RISK_MAX_MULT",
         "OH_FIRE_TIER_MULT", "UG_FIRE_RISK_K", "HIGH_RISK_THRESHOLD", "OH_POWERLINE_MULT",
         "OH_ROAD_MULT", "UG_POWERLINE_MULT", "UG_ROAD_MULT", "MANAGED_LAND_MULT", "PROTECTED_PENALTY", "TRIBAL_PENALTY",
-        "TRANSITION_COST_USD", "MIN_SEGMENT_M"]}
+        "TRANSITION_COST_USD", "MIN_SEGMENT_M"]}}
 
 
-async def _compute(start, end):
+async def _compute(start, end, preset):
     if state["pool"]:
-        return await asyncio.get_running_loop().run_in_executor(state["pool"], worker.route_json, start, end)
-    return await run_in_threadpool(worker.route_json, start, end)
+        return await asyncio.get_running_loop().run_in_executor(state["pool"], worker.route_json, start, end, preset)
+    return await run_in_threadpool(worker.route_json, start, end, preset)
 
 
 @app.post("/route")
 async def route(req: RouteRequest):
-    key = tuple(round(v, CACHE_KEY_DECIMALS) for v in (*req.start, *req.end))
-    status, body, cache_state = await state["cache"].get_or_compute(key, lambda: _compute(req.start, req.end))
+    key = (*(round(v, CACHE_KEY_DECIMALS) for v in (*req.start, *req.end)), req.preset)
+    status, body, cache_state = await state["cache"].get_or_compute(key, lambda: _compute(req.start, req.end, req.preset))
     return Response(content=body, status_code=status, media_type="application/json", headers={"X-Cache": cache_state})
 
 

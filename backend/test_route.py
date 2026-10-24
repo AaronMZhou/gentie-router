@@ -129,6 +129,29 @@ def main():
     except RouteError as ex:
         print(f"\nout-of-region check OK: {ex}")
 
+    # strategy presets: balanced == default; presets search different paths, priced on the balanced grid
+    S, CREELMAN = CASES[0][1], CREELMAN_SUB
+    r = router
+    base = r.route(S, CREELMAN)
+    base["properties"].pop("compute_ms")
+    again = r.route(S, CREELMAN, preset="balanced")
+    again["properties"].pop("compute_ms")
+    assert base == again
+    assert base["properties"]["preset"] == "balanced"
+    alts = {p: r.route(S, CREELMAN, preset=p) for p in C.PRESETS}
+    geoms = {p: json.dumps([f["geometry"] for f in fc["features"] if f["properties"].get("kind") == "segment"]) for p, fc in alts.items()}
+    print()
+    for p, fc in alts.items():
+        q = fc["properties"]
+        print(f"preset {p:12s} {q['total_km']:6.2f} km  {fmt_usd(q['total_cost_usd'])}  OH {q['overhead_km']:.2f} UG {q['underground_km']:.2f}  "
+              f"OH high-hazard {q['overhead_high_risk_km']:.2f} km")
+        check_schema(fc)
+    assert len(set(geoms.values())) >= 3, "presets must give visibly different routes"
+    # pricing is always on the balanced grid: re-pricing the balanced route gives its own cost
+    assert abs(alts["balanced"]["properties"]["total_cost_usd"] - base["properties"]["total_cost_usd"]) <= 1
+    try: r.route(S, CREELMAN, preset="nope"); raise AssertionError("unknown preset accepted")
+    except RouteError: pass
+
     if args.save_demo:
         demo = results[0]
         demo["properties"]["demo"] = True

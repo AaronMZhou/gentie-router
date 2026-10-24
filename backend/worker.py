@@ -26,9 +26,9 @@ def warm(_=None):
     return os.getpid()
 
 
-def route_json(start, end):
+def route_json(start, end, preset="balanced"):
     """-> (status_code, json_bytes)."""
     try:
-        return 200, json.dumps(_router.route(start, end), separators=(",", ":")).encode()
+        return 200, json.dumps(_router.route(start, end, preset), separators=(",", ":")).encode()
     except RouteError as ex:
         return 400, json.dumps({"detail": str(ex)}).encode()
