@@ -68,7 +68,7 @@ Open **http://localhost:8000**. The backend serves the frontend too, so this one
 
 - Click once to place the **project site**, then click again to place the **substation**. Clicking a purple substation marker snaps to it. The route appears in well under a second.
 - **View modes**, switched at the top of the panel; the app remembers your choice:
-  - **Enhanced** (default): terrain exaggerated 1.5×, early-afternoon sun with shading and shadows, and a low oblique camera. Within about 9 km, overhead lines appear as **3D poles with crossarms and three sagging conductors**, with the orange trace running tower to tower beneath them.
+  - **Enhanced** (default): terrain exaggerated 1.5× (the **Terrain height** dropdown changes it: 1× true scale, 1.5×, 2× or 3×; the choice is remembered), early-afternoon sun with shading and shadows, and a low oblique camera. Within about 9 km, overhead lines appear as **3D poles with crossarms and three sagging conductors**, with the orange trace running tower to tower beneath them.
   - **Top View**: the basic, fastest version. Flat ground (no 3D terrain), satellite imagery, flat tower icons, no lighting or shadows. Useful for picking points.
   - Switching views keeps the camera where it is; only the rendering changes.
 - **▶ Fly along route** flies the camera along the line in 20–60 s. Click or press Esc to stop.

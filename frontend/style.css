@@ -124,3 +124,8 @@ button.fly { width: 100%; margin: 4px 0 10px; }
 .story ul { margin: 2px 0 8px; padding-left: 16px; }
 .story li { margin: 2px 0; }
 .story .caveat { color: var(--muted); font-size: 11px; margin-bottom: 0; }
+.exagrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 12px; }
+.exagrow[hidden] { display: none; }
+.exagrow select { flex: 1; max-width: 150px; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.06); color: var(--fg); font: inherit; }
+.exagrow select option { background: #1b2027; }
