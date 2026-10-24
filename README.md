@@ -66,9 +66,14 @@ python -m uvicorn backend.app:app --port 8000
 
 Open **http://localhost:8000**. The backend serves the frontend too, so this one command runs everything.
 
-- Click once to place the **project site**, then click again to place the **substation**. Clicking a purple substation marker snaps to it. The route appears in about 0.1–0.3 s.
-- Overhead segments are solid orange with tower glyphs every ~300 m. Underground segments are dashed cyan. The straight baseline is a faint white line.
-- Toggles: wildfire hazard (USFS WHP, draped image), HFTD/FHSZ tiers, protected land, tribal land, existing power lines, baseline. **Reset** (or Esc) clears the route.
+- Click once to place the **project site**, then click again to place the **substation**. Clicking a purple substation marker snaps to it. The route appears in well under a second.
+- **View modes**, switched at the top of the panel; the app remembers your choice:
+  - **Enhanced** (default): terrain exaggerated 1.5×, early-afternoon sun with shading and shadows, and a low oblique camera. Within about 9 km, overhead lines appear as **3D poles with crossarms and three sagging conductors**, with the orange trace running tower to tower beneath them.
+  - **Top View**: flat terrain, steep overview, and flat tower icons. Useful for picking points precisely.
+- **▶ Fly along route** flies the camera along the line in 20–60 s. Click or press Esc to stop. During the flight, MSAA anti-aliasing, HDR and terrain shadows are relaxed; on an Intel UHD integrated GPU that roughly doubled the frame rate (about 18 → 37 fps).
+- **Mouse:** left-drag pans, **right-drag looks around** from where you are, the wheel zooms, Ctrl- or middle-drag tilts. Hovering shows the elevation under the cursor.
+- Overhead segments are solid orange, underground segments are dashed cyan, and the straight baseline is a faint white line. The elevation profile shows total climb and descent.
+- Toggles: wildfire hazard (USFS WHP, draped image), HFTD/FHSZ tiers, protected land, tribal land, existing power lines, baseline, and 100 m elevation contours (off by default). **Reset** (or Esc) clears the route.
 
 **Demo safety:** **Load demo route** reads `frontend/demo_route.json` and needs no backend. If the backend dies, serve just the static files and the demo still works:
 

@@ -103,3 +103,12 @@ button.primary:hover { filter: brightness(1.1); }
 .triggers { margin: 6px 0 0; padding-left: 0; list-style: none; font-size: 12px; }
 .triggers li { padding: 3px 0; border-bottom: 1px solid var(--line); }
 .triggers code { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.1); margin-right: 6px; }
+
+.viewswitch { display: flex; margin-top: 10px; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.viewswitch button { border: 0; border-radius: 0; background: transparent; padding: 6px 8px; }
+.viewswitch button + button { border-left: 1px solid var(--line); }
+.viewswitch button.on { background: var(--accent); color: #1a1a1a; font-weight: 600; }
+button.fly { width: 100%; margin: 4px 0 10px; }
+.sw.contour { height: 8px; background: repeating-linear-gradient(0deg, rgba(255,255,255,0.6) 0 1px, transparent 1px 4px); }
+#readout { position: absolute; bottom: 36px; right: 12px; background: rgba(18, 22, 28, 0.85); padding: 6px 10px;
+  border-radius: 6px; font-variant-numeric: tabular-nums; pointer-events: none; font-size: 12px; }

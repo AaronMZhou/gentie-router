@@ -23,8 +23,10 @@
 
   // ------------------------------------------------------------------ viewer
   if (hasToken) Cesium.Ion.defaultAccessToken = cfg.CESIUM_ION_TOKEN;
+  // vertex normals -> sun shading of the terrain in Enhanced view
+  const terrain = hasToken ? Cesium.Terrain.fromWorldTerrain({ requestVertexNormals: true, requestWaterMask: true }) : undefined;
   const viewer = new Cesium.Viewer("cesiumContainer", {
-    terrain: hasToken ? Cesium.Terrain.fromWorldTerrain() : undefined,
+    terrain,
     baseLayer: hasToken
       ? Cesium.ImageryLayer.fromWorldImagery()
       : new Cesium.ImageryLayer(new Cesium.OpenStreetMapImageryProvider({ url: "https://tile.openstreetmap.org/" })),
@@ -32,12 +34,34 @@
     navigationHelpButton: false, animation: false, timeline: false, fullscreenButton: false,
     infoBox: false, selectionIndicator: false,
   });
-  viewer.scene.globe.depthTestAgainstTerrain = true;
-  viewer.scene.globe.enableLighting = false;
+  const scene = viewer.scene, globe = scene.globe;
+  globe.depthTestAgainstTerrain = true;
   viewer.screenSpaceEventHandler.removeInputAction(Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+  // resolves once real terrain heights can be sampled
+  const terrainReady = new Promise((resolve) => {
+    if (!terrain || terrain.ready) return resolve();
+    terrain.readyEvent.addEventListener(() => resolve());
+    terrain.errorEvent.addEventListener(() => resolve());
+  });
+
+  // render quality: full device resolution, 4x MSAA, sharper terrain/imagery near the camera
+  viewer.useBrowserRecommendedResolution = false;
+  scene.msaaSamples = 4;
+  globe.maximumScreenSpaceError = 1.33;
+  globe.tileCacheSize = 1000;
+  scene.highDynamicRange = true;
+  viewer.shadowMap.softShadows = true;
+  viewer.shadowMap.maximumDistance = 20000;
+  viewer.shadowMap.size = 4096;
+  viewer.shadowMap.darkness = 0.55;
+  viewer.clock.shouldAnimate = false;
+  viewer.clock.currentTime = Cesium.JulianDate.fromIso8601("2026-10-24T20:30:00Z"); // 1:30 pm PDT sun
 
   const layers = {
-    route: new Cesium.CustomDataSource("route"),
+    route: new Cesium.CustomDataSource("route"),        // underground lines, real line (both views)
+    routeTop: new Cesium.CustomDataSource("routeTop"),  // overhead route geometry + flat tower icons
+    routeEnh: new Cesium.CustomDataSource("routeEnh"),  // overhead line tower-to-tower (Enhanced)
+    hardware: new Cesium.CustomDataSource("hardware"),  // 3D poles, crossarms, conductors (Enhanced)
     markers: new Cesium.CustomDataSource("markers"),
     baseline: new Cesium.CustomDataSource("baseline"),
     region: new Cesium.CustomDataSource("region"),
@@ -47,7 +71,16 @@
 
   // ------------------------------------------------------------------ state
   const state = { bbox: cfg.FALLBACK_BBOX || [-116.89, 32.94, -116.56, 33.21], start: null, end: null,
-                  busy: false, backendOk: false };
+                  busy: false, backendOk: false, view: "enhanced", route: null };
+  try { if (localStorage.getItem("gentie.view") === "top") state.view = "top"; } catch (_) { /* storage blocked */ }
+
+  // Enhanced view
+  const ENH_EXAGGERATION = 1.5;
+  const TOWER_H = 26;               // conductor attachment height above ground (m)
+  const PHASE_OFFSETS = [-5, 0, 5]; // conductor positions along the crossarm (m)
+  const SAG_FRAC = 0.025;           // mid-span sag as a fraction of span length
+  const NEAR = new Cesium.DistanceDisplayCondition(0, 9000); // 3D hardware only when zoomed in
+  const M_PER_DEG = 111320;
 
   // ------------------------------------------------------------------ helpers
   const fmtUsd = (x) => (Math.abs(x) >= 1e6 ? `$${(x / 1e6).toFixed(1)}M` : `$${Math.round(x / 1e3)}k`);
@@ -86,6 +119,12 @@
     const [w, s, e, n] = state.bbox;
     return lon >= w && lon <= e && lat >= s && lat <= n;
   }
+
+  // small-area geometry on [lon, lat] (equirectangular - fine at this scale)
+  const kLon = (lat) => Math.cos(Cesium.Math.toRadians(lat));
+  const bearingOf = (a, b) => Math.atan2((b[0] - a[0]) * kLon((a[1] + b[1]) / 2), b[1] - a[1]); // rad, clockwise from north
+  const distM = (a, b) => Math.hypot((b[0] - a[0]) * kLon((a[1] + b[1]) / 2), b[1] - a[1]) * M_PER_DEG;
+  const offsetLL = ([lon, lat], dEast, dNorth) => [lon + dEast / (M_PER_DEG * kLon(lat)), lat + dNorth / M_PER_DEG];
 
   const pinBuilder = new Cesium.PinBuilder();
   function placeMarker(kind, lonlat, label) {
@@ -133,22 +172,35 @@
     });
   }
 
-  // Tilted, north-up view of a lon/lat box, nudged so it sits right of the side panel.
-  function frameBox([w, s, e, n], duration = 1.5) {
-    const cy = (s + n) / 2;
-    const halfDiag = Math.max(
-      Cesium.Cartesian3.distance(Cesium.Cartesian3.fromDegrees(w, s), Cesium.Cartesian3.fromDegrees(e, n)) / 2, 2500);
-    const range = halfDiag * 2.5;
-    // the panel covers ~1/4 of the screen; visible ground width ~ 2*range*tan(30deg)
+  // Tilted view of a lon/lat box, nudged so it sits right of the side panel.
+  function frameBox([w, s, e, n], duration = 1.5, { heading = 0, pitchDeg = -45, rangeFactor = 2.5 } = {}) {
+    const center = [(w + e) / 2, (s + n) / 2];
+    const halfDiag = Math.max(distM([w, s], [e, n]) / 2, 2500);
+    const range = halfDiag * rangeFactor;
+    // the panel covers ~1/4 of the screen; visible ground width ~ 2*range*tan(30deg).
+    // Shift the target toward screen-left (bearing heading - 90deg) so the box lands right of the panel.
     const shiftM = window.innerWidth > 720 ? (350 / window.innerWidth) * range * Math.tan(Math.PI / 6) : 0;
-    const shiftDeg = shiftM / (111320 * Math.cos(Cesium.Math.toRadians(cy)));
-    const target = Cesium.Cartesian3.fromDegrees((w + e) / 2 - shiftDeg, cy, 800);
-    viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(target, halfDiag), {
-      offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-45), range), duration,
+    const left = heading - Math.PI / 2;
+    const [tx, ty] = offsetLL(center, shiftM * Math.sin(left), shiftM * Math.cos(left));
+    viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(Cesium.Cartesian3.fromDegrees(tx, ty, 800), halfDiag), {
+      offset: new Cesium.HeadingPitchRange(heading, Cesium.Math.toRadians(pitchDeg), range), duration,
     });
   }
 
-  const homeView = (duration = 0) => frameBox(state.bbox, duration);
+  function homeView(duration = 0) {
+    if (state.view === "enhanced") frameBox(state.bbox, duration, { pitchDeg: -35, rangeFactor: 2.1 });
+    else frameBox(state.bbox, duration);
+  }
+
+  function frameRoute(duration = 1.6) {
+    const r = state.route;
+    if (!r) return homeView(duration);
+    if (state.view === "enhanced") { // side-on and low: look across the terrain at the line
+      frameBox(r.box, duration, { heading: bearingOf(r.start, r.end) + Math.PI / 2, pitchDeg: -30, rangeFactor: 1.3 });
+    } else {
+      frameBox(r.box, duration);
+    }
+  }
 
   // ------------------------------------------------------------------ overlays
   async function loadOverlay(name) {
@@ -227,10 +279,34 @@
     }
   }
 
+  const contourMaterial = Cesium.Material.fromType("ElevationContour", {
+    color: Cesium.Color.WHITE.withAlpha(0.18), spacing: 100, width: 1.0,
+  });
+  const toggleContours = (on) => (globe.material = on ? contourMaterial : undefined);
+
+  // ------------------------------------------------------------------ view modes
+  // Top View: flat, high, steep (good for picking points).  Enhanced: 1.5x terrain, sun + shadows,
+  // low oblique camera, 3D towers and conductors.
+  function applyView(reframe = true) {
+    const enh = state.view === "enhanced";
+    scene.verticalExaggeration = enh ? ENH_EXAGGERATION : 1;
+    globe.enableLighting = enh;
+    viewer.shadows = enh;
+    viewer.terrainShadows = enh ? Cesium.ShadowMode.ENABLED : Cesium.ShadowMode.DISABLED;
+    layers.routeTop.show = !enh;
+    layers.routeEnh.show = layers.hardware.show = enh;
+    $("vTop").classList.toggle("on", !enh);
+    $("vEnh").classList.toggle("on", enh);
+    try { localStorage.setItem("gentie.view", state.view); } catch (_) { /* storage blocked */ }
+    if (reframe) (state.route ? frameRoute(1.2) : homeView(1.2));
+  }
+
   // ------------------------------------------------------------------ routing
   function clearRoute() {
-    layers.route.entities.removeAll();
-    layers.baseline.entities.removeAll();
+    stopFly();
+    state.route = null;
+    state.routeSeq = (state.routeSeq || 0) + 1; // invalidates any pending 3D build
+    for (const ds of [layers.route, layers.routeTop, layers.routeEnh, layers.hardware, layers.baseline]) ds.entities.removeAll();
     $("results").hidden = true;
     $("validation").hidden = true;
   }
@@ -263,25 +339,28 @@
 
   function showRoute(fc, isDemo = false) {
     clearRoute();
-    const towerPositions = [];
+    let towerLL = [];
+    const segments = [];
     const box = [Infinity, Infinity, -Infinity, -Infinity];
     for (const f of fc.features) {
       const p = f.properties;
       if (p.kind === "segment") {
+        segments.push(f);
         const positions = Cesium.Cartesian3.fromDegreesArray(f.geometry.coordinates.flat());
         for (const [lon, lat] of f.geometry.coordinates) {
           box[0] = Math.min(box[0], lon); box[1] = Math.min(box[1], lat);
           box[2] = Math.max(box[2], lon); box[3] = Math.max(box[3], lat);
         }
-        const oh = p.mode === "overhead";
-        layers.route.entities.add({
-          polyline: {
+        if (p.mode === "overhead") {
+          layers.routeTop.entities.add({ polyline: { positions, clampToGround: true, width: 5, material: COLORS.oh } });
+        } else {
+          layers.route.entities.add({ polyline: {
             positions, clampToGround: true, width: 5,
-            material: oh ? COLORS.oh : new Cesium.PolylineDashMaterialProperty({ color: COLORS.ug, dashLength: 14 }),
-          },
-        });
+            material: new Cesium.PolylineDashMaterialProperty({ color: COLORS.ug, dashLength: 14 }),
+          } });
+        }
       } else if (p.kind === "towers") {
-        for (const [lon, lat] of f.geometry.coordinates) towerPositions.push(Cesium.Cartesian3.fromDegrees(lon, lat));
+        towerLL = f.geometry.coordinates;
       } else if (p.kind === "baseline") {
         layers.baseline.entities.add({
           polyline: {
@@ -291,9 +370,9 @@
         });
       }
     }
-    for (const position of towerPositions) {
-      layers.route.entities.add({
-        position,
+    for (const [lon, lat] of towerLL) {
+      layers.routeTop.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(lon, lat),
         billboard: {
           image: TOWER_IMG, verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
           heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
@@ -304,15 +383,169 @@
     }
     layers.baseline.show = $("tglBaseline").checked;
 
+    // towers grouped into overhead runs (a gap > 400 m = underground section in between)
+    const runs = [];
+    towerLL.forEach((t, i) => {
+      if (!i || distM(towerLL[i - 1], t) > 400) runs.push([]);
+      runs[runs.length - 1].push(i);
+    });
+    const towerBearing = towerLL.map(() => 0);
+    for (const run of runs) run.forEach((i, k) => {
+      const a = towerLL[run[Math.max(k - 1, 0)]], b = towerLL[run[Math.min(k + 1, run.length - 1)]];
+      towerBearing[i] = run.length > 1 ? bearingOf(a, b) : 0;
+    });
+    // Enhanced: the overhead trace runs tower to tower, exactly under the conductors
+    for (const run of runs) {
+      if (run.length < 2) continue;
+      layers.routeEnh.entities.add({ polyline: {
+        positions: Cesium.Cartesian3.fromDegreesArray(run.flatMap((i) => towerLL[i])), clampToGround: true,
+        width: 4, material: COLORS.oh.withAlpha(0.85),
+      } });
+    }
+
     const props = fc.properties;
     state.start = props.start;
     state.end = props.end;
+    state.route = { start: props.start, end: props.end, box, segments, towerLL, runs, towerBearing };
     placeMarker("start", props.start, "Project site");
     placeMarker("end", props.end, "Substation");
     updateSteps();
     renderPanel(props, fc.features, isDemo);
+    buildHardware(state.routeSeq);
 
-    if (Number.isFinite(box[0])) frameBox(box, 1.6);
+    if (Number.isFinite(box[0])) frameRoute(1.6);
+  }
+
+  // 3D poles + crossarms + three sagging conductors per span.  Positions are absolute heights
+  // (sampled terrain x exaggeration + attachment height) rather than RELATIVE_TO_GROUND, so the
+  // entities don't re-query terrain every time a tile loads (that made the fly-through stutter).
+  async function buildHardware(seq) {
+    const r = state.route;
+    if (!r || !r.towerLL.length) return;
+    await terrainReady;
+    const carto = r.towerLL.map(([lon, lat]) => Cesium.Cartographic.fromDegrees(lon, lat));
+    try { await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, carto); } catch (_) { /* flat fallback */ }
+    if (seq !== state.routeSeq) return; // a newer route replaced this one
+    const e = ENH_EXAGGERATION;
+    const ground = carto.map((c) => (c.height || 0) * e);
+    const steel = Cesium.Color.fromCssColorString("#c9ced4");
+    const wire = Cesium.Color.fromCssColorString("#2b2f33").withAlpha(0.9);
+    const ents = layers.hardware.entities;
+    ents.suspendEvents();
+    r.towerLL.forEach(([lon, lat], i) => {
+      const at = (h) => Cesium.Cartesian3.fromDegrees(lon, lat, ground[i] + h);
+      ents.add({ position: at(TOWER_H / 2 - 1), cylinder: { length: TOWER_H + 2, topRadius: 0.35, bottomRadius: 1.1,
+        material: steel, distanceDisplayCondition: NEAR, shadows: Cesium.ShadowMode.ENABLED } });
+      ents.add({ position: at(TOWER_H),
+        orientation: Cesium.Transforms.headingPitchRollQuaternion(at(TOWER_H), new Cesium.HeadingPitchRoll(r.towerBearing[i], 0, 0)),
+        box: { dimensions: new Cesium.Cartesian3(12, 0.5, 0.5), material: steel, distanceDisplayCondition: NEAR,
+               shadows: Cesium.ShadowMode.ENABLED } });
+    });
+    for (const run of r.runs) for (let k = 0; k + 1 < run.length; k++) {
+      const a = run[k], b = run[k + 1];
+      const span = distM(r.towerLL[a], r.towerLL[b]);
+      const hA = ground[a] + TOWER_H, hB = ground[b] + TOWER_H;
+      for (const off of PHASE_OFFSETS) {  // crossarm runs at bearing + 90deg
+        const pa = offsetLL(r.towerLL[a], off * Math.cos(r.towerBearing[a]), -off * Math.sin(r.towerBearing[a]));
+        const pb = offsetLL(r.towerLL[b], off * Math.cos(r.towerBearing[b]), -off * Math.sin(r.towerBearing[b]));
+        const pts = [];
+        for (let s = 0; s <= 12; s++) {
+          const t = s / 12;
+          pts.push(pa[0] + (pb[0] - pa[0]) * t, pa[1] + (pb[1] - pa[1]) * t,
+                   hA + (hB - hA) * t - SAG_FRAC * span * 4 * t * (1 - t));
+        }
+        ents.add({ polyline: { positions: Cesium.Cartesian3.fromDegreesArrayHeights(pts), width: 1.5,
+          arcType: Cesium.ArcType.NONE, material: wire, distanceDisplayCondition: NEAR } });
+      }
+    }
+    ents.resumeEvents();
+  }
+
+  // ------------------------------------------------------------------ fly-through
+  // Precomputed, smoothed camera path at uniform spacing; each frame interpolates between samples
+  // (no stepping), and the heaviest render settings are relaxed for the duration of the flight.
+  let fly = null;
+  async function startFly() {
+    if (fly) return stopFly();
+    const r = state.route;
+    if (!r) return;
+    setStatus("Preparing fly-through…", true);
+    const line = [];
+    for (const f of r.segments) for (const c of f.geometry.coordinates) {
+      if (!line.length || distM(line[line.length - 1], c) > 0.5) line.push(c);
+    }
+    const STEP = 25, pts = [];  // resample every 25 m along the route
+    let carry = 0;
+    for (let i = 0; i + 1 < line.length; i++) {
+      const L = distM(line[i], line[i + 1]);
+      for (let t = carry; t < L; t += STEP) pts.push([line[i][0] + (line[i + 1][0] - line[i][0]) * t / L,
+                                                     line[i][1] + (line[i + 1][1] - line[i][1]) * t / L]);
+      carry = (carry - L) % STEP;
+      if (carry < 0) carry += STEP;
+    }
+    pts.push(line[line.length - 1]);
+    if (pts.length < 3) return setStatus("");
+
+    await terrainReady;
+    const carto = pts.map(([lon, lat]) => Cesium.Cartographic.fromDegrees(lon, lat));
+    try { await Cesium.sampleTerrain(viewer.terrainProvider, 12, carto); } catch (_) { /* flat fallback */ }
+    const e = scene.verticalExaggeration, N = pts.length, AHEAD = 24; // look ~600 m ahead
+    const ground = carto.map((c) => (c.height || 0) * e);
+    const clear = ground.map((_, i) => Math.max(...ground.slice(Math.max(i - 8, 0), Math.min(i + AHEAD, N - 1) + 1)) + 280);
+    const smooth = (arr, rad) => arr.map((_, i) => {
+      let s = 0, n = 0;
+      for (let j = Math.max(i - rad, 0); j <= Math.min(i + rad, arr.length - 1); j++) { s += arr[j]; n++; }
+      return s / n;
+    });
+    const height = smooth(clear, 24);
+    const hx = smooth(pts.map((p, i) => Math.sin(bearingOf(p, pts[Math.min(i + AHEAD, N - 1)]))), 16);
+    const hy = smooth(pts.map((p, i) => Math.cos(bearingOf(p, pts[Math.min(i + AHEAD, N - 1)]))), 16);
+    const heading = hx.map((x, i) => Math.atan2(x, hy[i]));
+
+    const km = (N - 1) * STEP / 1000;
+    const duration = Math.min(Math.max(km * 3, 20), 60); // seconds
+    // Measured on an Intel UHD iGPU: MSAA and HDR dominate per-frame cost while moving
+    // (24 fps -> ~40 fps without them); lighting and the 3D hardware are cheap, so they stay.
+    const prev = { msaa: scene.msaaSamples, sse: globe.maximumScreenSpaceError, hdr: scene.highDynamicRange };
+    viewer.shadows = false; // the shadow map re-renders every frame while the camera moves
+    viewer.terrainShadows = Cesium.ShadowMode.DISABLED;
+    scene.msaaSamples = 1;
+    scene.postProcessStages.fxaa.enabled = true; // cheap edge smoothing instead of MSAA
+    scene.highDynamicRange = false;
+    globe.maximumScreenSpaceError = 3;
+
+    const t0 = performance.now();
+    const tick = () => {
+      const u = Math.min((performance.now() - t0) / 1000 / duration, 1);
+      const f = u * (N - 1), i = Math.min(Math.floor(f), N - 2), w = f - i;
+      let dh = heading[i + 1] - heading[i];
+      dh = Math.atan2(Math.sin(dh), Math.cos(dh)); // shortest turn
+      viewer.camera.setView({
+        destination: Cesium.Cartesian3.fromDegrees(pts[i][0] + (pts[i + 1][0] - pts[i][0]) * w,
+                                                   pts[i][1] + (pts[i + 1][1] - pts[i][1]) * w,
+                                                   height[i] + (height[i + 1] - height[i]) * w),
+        orientation: { heading: heading[i] + dh * w, pitch: Cesium.Math.toRadians(-17), roll: 0 },
+      });
+      if (u >= 1) stopFly();
+    };
+    scene.preRender.addEventListener(tick);
+    fly = { tick, prev };
+    $("btnFly").textContent = "■ Stop fly-through";
+    setStatus(`Flying along the route (${Math.round(duration)} s) — click or Esc to stop.`);
+  }
+
+  function stopFly() {
+    if (!fly) return;
+    scene.preRender.removeEventListener(fly.tick);
+    viewer.shadows = state.view === "enhanced";
+    viewer.terrainShadows = state.view === "enhanced" ? Cesium.ShadowMode.ENABLED : Cesium.ShadowMode.DISABLED;
+    scene.msaaSamples = fly.prev.msaa;
+    scene.postProcessStages.fxaa.enabled = false;
+    scene.highDynamicRange = fly.prev.hdr;
+    globe.maximumScreenSpaceError = fly.prev.sse;
+    fly = null;
+    $("btnFly").textContent = "▶ Fly along route";
+    setStatus("");
   }
 
   // ------------------------------------------------------------------ panel
@@ -408,7 +641,13 @@
       l.setAttribute("vector-effect", "non-scaling-stroke");
       svg.appendChild(l);
     }
-    $("profEnd").textContent = `${dMax.toFixed(1)} km · ${Math.round(zMin)}–${Math.round(zMax)} m`;
+    let climb = 0, descent = 0;
+    for (let i = 1; i < profile.length; i++) {
+      const dz = profile[i][1] - profile[i - 1][1];
+      if (dz > 0) climb += dz; else descent -= dz;
+    }
+    $("profEnd").textContent =
+      `${dMax.toFixed(1)} km · ${Math.round(zMin)}–${Math.round(zMax)} m · +${Math.round(climb)} / −${Math.round(descent)} m`;
   }
 
   // ------------------------------------------------------------------ validation
@@ -451,7 +690,10 @@
 
   // ------------------------------------------------------------------ clicks
   const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+  handler.setInputAction(() => { if (fly) { state.flyStoppedAt = performance.now(); stopFly(); } },
+    Cesium.ScreenSpaceEventType.LEFT_DOWN);
   handler.setInputAction((click) => {
+    if (performance.now() - (state.flyStoppedAt || 0) < 600) return; // that click just stopped the fly-through
     if (state.busy) return;
     let lonlat = null;
     // snap to a substation marker if one was clicked
@@ -487,6 +729,37 @@
     updateSteps();
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
+  // Right-drag looks around from where the camera is (heading/pitch in place) instead of zooming;
+  // zoom stays on the wheel / pinch, tilt on middle-drag or Ctrl+drag.
+  scene.screenSpaceCameraController.zoomEventTypes = [Cesium.CameraEventType.WHEEL, Cesium.CameraEventType.PINCH];
+  scene.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+  let look = null;
+  handler.setInputAction((e) => { stopFly(); look = { x: e.position.x, y: e.position.y }; }, Cesium.ScreenSpaceEventType.RIGHT_DOWN);
+  handler.setInputAction(() => (look = null), Cesium.ScreenSpaceEventType.RIGHT_UP);
+
+  // mouse move: right-drag look-around + elevation readout (throttled)
+  let lastReadout = 0;
+  handler.setInputAction((m) => {
+    if (look) {
+      const cam = viewer.camera, k = 0.0035; // radians per pixel
+      const pitch = Cesium.Math.clamp(cam.pitch - (m.endPosition.y - look.y) * k, -Cesium.Math.PI_OVER_TWO + 0.01, 0.35);
+      cam.setView({ orientation: { heading: cam.heading + (m.endPosition.x - look.x) * k, pitch, roll: 0 } });
+      look = { x: m.endPosition.x, y: m.endPosition.y };
+      return;
+    }
+    const now = performance.now();
+    if (fly || now - lastReadout < 80) return;
+    lastReadout = now;
+    const ray = viewer.camera.getPickRay(m.endPosition);
+    const cart = ray && globe.pick(ray, scene);
+    const out = $("readout");
+    if (!cart) { out.hidden = true; return; }
+    const c = Cesium.Cartographic.fromCartesian(cart);
+    out.hidden = false;
+    out.textContent = `${Cesium.Math.toDegrees(c.latitude).toFixed(4)}, ${Cesium.Math.toDegrees(c.longitude).toFixed(4)} · ` +
+      `elevation ${Math.round(c.height / scene.verticalExaggeration).toLocaleString()} m`;
+  }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+
   // ------------------------------------------------------------------ UI wiring
   $("btnReset").onclick = () => { reset(); homeView(1.2); };
   $("btnDemo").onclick = async () => {
@@ -506,7 +779,14 @@
   $("tglTribal").onchange = (e) => toggleOverlay("tribal", e.target.checked);
   $("tglLines").onchange = (e) => toggleOverlay("powerlines", e.target.checked);
   $("tglBaseline").onchange = (e) => (layers.baseline.show = e.target.checked);
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") reset(); });
+  $("tglContours").onchange = (e) => toggleContours(e.target.checked);
+  $("vTop").onclick = () => { if (state.view !== "top") { stopFly(); state.view = "top"; applyView(); } };
+  $("vEnh").onclick = () => { if (state.view !== "enhanced") { stopFly(); state.view = "enhanced"; applyView(); } };
+  $("btnFly").onclick = startFly;
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (fly) stopFly(); else reset();
+  });
 
   // ------------------------------------------------------------------ boot
   async function boot() {
@@ -533,6 +813,7 @@
       $("dataBadge").className = "badge err";
     }
     drawRegion();
+    applyView(false);
     homeView();
     reset();
   }

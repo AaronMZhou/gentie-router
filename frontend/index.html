@@ -18,6 +18,10 @@
       <h1>Gen-tie Router</h1>
       <div id="region" class="muted">Loading region…</div>
       <div id="dataBadge" class="badge">…</div>
+      <div class="viewswitch" role="group" aria-label="View mode">
+        <button id="vTop">Top View</button>
+        <button id="vEnh" class="on">Enhanced</button>
+      </div>
     </header>
 
     <section id="steps">
@@ -41,6 +45,7 @@
       <label><input type="checkbox" id="tglTribal"> Tribal land <span class="sw tribal"></span></label>
       <label><input type="checkbox" id="tglLines" checked> Existing power lines <span class="sw line"></span></label>
       <label><input type="checkbox" id="tglBaseline" checked> Straight-line baseline <span class="sw base"></span></label>
+      <label><input type="checkbox" id="tglContours"> Elevation contours (100 m) <span class="sw contour"></span></label>
     </section>
 
     <section id="validation" hidden>
@@ -59,6 +64,7 @@
         <div><div class="big" id="rCost">–</div><div class="muted">est. cost</div></div>
         <div><div class="big" id="rKm">–</div><div class="muted">length</div></div>
       </div>
+      <button id="btnFly" class="fly">▶ Fly along route</button>
       <div class="grid">
         <div><span class="k">Overhead</span><span class="v" id="rOh">–</span></div>
         <div><span class="k">Underground</span><span class="v" id="rUg">–</span></div>
@@ -105,11 +111,14 @@
       <div><span class="sw oh"></span> Overhead (towers every ~300 m)</div>
       <div><span class="sw ug"></span> Underground</div>
       <div><span class="sw real"></span> Real existing line (validation)</div>
+      <p class="muted small">Enhanced view: terrain ×1.5, 3D towers and conductors appear when zoomed in (&lt; 9 km).<br>
+        Left-drag pan · Right-drag look around · Wheel zoom · Ctrl/middle-drag tilt</p>
       <p class="muted small">Costs are rough planning assumptions ($2M/mi overhead, $10M/mi underground,
         scaled by slope, wildfire tier, corridors &amp; land status). Not an engineering estimate.</p>
     </section>
   </aside>
   <div id="toast" hidden></div>
+  <div id="readout" hidden></div>
 
   <script src="app.js"></script>
 </body>
