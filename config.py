@@ -133,6 +133,9 @@ TRANSITION_COST_USD = 750_000  # ASSUMPTION: riser pole / transition structure p
 TOWER_SPACING_M = 300.0      # visual tower markers along overhead segments
 SIMPLIFY_TOLERANCE_M = 20.0
 STRAIGHTEN_TOL = 0.01        # accept a straight span if it costs <= 1% more than the grid path it replaces
+# Search window around the endpoints (performance): bbox of start/end + max(min margin, frac * distance).
+WINDOW_MIN_MARGIN_M = 3000.0
+WINDOW_MARGIN_FRAC = 0.6
 
 # --------------------------------------------------------------------------
 # Inventory / right-of-way estimates (ASSUMPTIONS, reported in /route "inventory" and "row")

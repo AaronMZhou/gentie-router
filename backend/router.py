@@ -6,13 +6,14 @@ Least-cost gen-tie routing on the combined cost grid.
 3. split into contiguous overhead / underground runs, simplify each, cost them
 4. build a straight overhead baseline for comparison
 """
+import json
 import time
 
 import numpy as np
 from pyproj import Transformer
 from shapely.geometry import LineString
 from skimage.draw import line as draw_line
-from skimage.graph import route_through_array
+from skimage.graph import MCP_Geometric, route_through_array
 
 import config as C
 from backend.cost_model import MODE_NAMES, OVERHEAD, UNDERGROUND, CostGrids, build_cost_grids
@@ -74,12 +75,33 @@ def smooth_modes(modes, cell_len, min_len):
 
 
 class Router:
-    def __init__(self, grids: CostGrids | None = None):
+    def __init__(self, grids: CostGrids | None = None, precompute=True):
         self.g = grids or build_cost_grids()
         self.to_utm = Transformer.from_crs("EPSG:4326", C.WORK_CRS, always_xy=True)
         self.to_ll = Transformer.from_crs(C.WORK_CRS, "EPSG:4326", always_xy=True)
         self.nrows, self.ncols = self.g.routing.shape
         self.cs = C.CELL_SIZE_M
+        self.window_fallbacks = 0  # searches re-run on the full grid (see least_cost_path)
+        self.tree_hits = 0         # requests answered from a precomputed substation tree
+        self.trees = self._substation_trees() if precompute else {}
+
+    def _substation_trees(self):
+        """One single-source least-cost tree per known substation (full-grid Dijkstra, ~0.1 s each).
+        Every gen-tie ends at a substation, so most requests become a traceback instead of a search."""
+        path = C.OVERLAY_DIR / "substations.geojson"
+        if not path.exists():
+            return {}
+        trees = {}
+        for f in json.loads(path.read_text())["features"]:
+            lon, lat = f["geometry"]["coordinates"]
+            w, s, e, n = C.BBOX
+            if not (w <= lon <= e and s <= lat <= n):
+                continue
+            rc = self.xy_to_rc(*self.lonlat_to_xy(lon, lat))
+            mcp = MCP_Geometric(self.g.routing, fully_connected=True)
+            mcp.find_costs([rc])
+            trees[rc] = mcp
+        return trees
 
     # ------------------------------------------------------------------ coords
     def lonlat_to_xy(self, lon, lat):
@@ -122,8 +144,7 @@ class Router:
         if s_rc == e_rc:
             raise RouteError("start and end fall in the same grid cell")
 
-        path, _ = route_through_array(self.g.routing, s_rc, e_rc, fully_connected=True, geometric=True)
-        path = self.straighten(np.asarray(path))
+        path = self.straighten(self.least_cost_path(s_rc, e_rc))
         rows, cols = path[:, 0], path[:, 1]
 
         # length represented by each path cell = half of its in-step + half of its out-step
@@ -267,6 +288,39 @@ class Router:
             "compute_ms": round((time.perf_counter() - t0) * 1000),
         }
         return {"type": "FeatureCollection", "properties": props, "features": features}
+
+    # ------------------------------------------------------------------ search
+    def least_cost_path(self, s_rc, e_rc, window=True, use_trees=True):
+        """Least-cost path from s_rc to e_rc (grid cells).
+
+        1. an endpoint is a known substation -> traceback in its precomputed tree (~ms)
+        2. otherwise search inside a window around the endpoints (a 6 km route doesn't need the
+           whole 31 x 30 km grid); if the path touches the window edge the window may have
+           constrained it, so re-run on the full grid.
+        Move costs are symmetric, so a tree rooted at either end gives the same optimal cost."""
+        if use_trees and e_rc in self.trees:
+            self.tree_hits += 1
+            return np.asarray(self.trees[e_rc].traceback(s_rc))[::-1]
+        if use_trees and s_rc in self.trees:
+            self.tree_hits += 1
+            return np.asarray(self.trees[s_rc].traceback(e_rc))
+        if window:
+            margin = int(max(C.WINDOW_MIN_MARGIN_M / self.cs,
+                             C.WINDOW_MARGIN_FRAC * np.hypot(s_rc[0] - e_rc[0], s_rc[1] - e_rc[1])))
+            r0, r1 = max(min(s_rc[0], e_rc[0]) - margin, 0), min(max(s_rc[0], e_rc[0]) + margin + 1, self.nrows)
+            c0, c1 = max(min(s_rc[1], e_rc[1]) - margin, 0), min(max(s_rc[1], e_rc[1]) + margin + 1, self.ncols)
+        else:
+            r0, r1, c0, c1 = 0, self.nrows, 0, self.ncols
+        sub = self.g.routing[r0:r1, c0:c1]
+        path, _ = route_through_array(sub, (s_rc[0] - r0, s_rc[1] - c0), (e_rc[0] - r0, e_rc[1] - c0),
+                                      fully_connected=True, geometric=True)
+        path = np.asarray(path) + [r0, c0]
+        touches_edge = ((r0 > 0 and (path[:, 0] == r0).any()) or (r1 < self.nrows and (path[:, 0] == r1 - 1).any()) or
+                        (c0 > 0 and (path[:, 1] == c0).any()) or (c1 < self.ncols and (path[:, 1] == c1 - 1).any()))
+        if window and touches_edge:
+            self.window_fallbacks += 1
+            return self.least_cost_path(s_rc, e_rc, window=False, use_trees=False)
+        return path
 
     # ------------------------------------------------------------------ straighten
     def straighten(self, path):
