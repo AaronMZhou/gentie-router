@@ -60,6 +60,13 @@ BUILDINGS_URL = ("https://imagery.geoplatform.gov/iipp/rest/services/Fire_Aviati
 # Optional real parcels: drop data/raw/parcels.gpkg|.shp|.geojson (e.g. the SanGIS PARCELS layer,
 # downloaded under the SanGIS end-user agreement) and re-run prepare_data.py.
 PARCEL_FILE_STEMS = ["parcels.gpkg", "parcels.shp", "parcels.geojson"]
+# Basemap context (data/prepare_basemap.py -> frontend/basemap/): borders + cities around the region.
+NATURAL_EARTH_URL = "https://naciscdn.org/naturalearth/10m/cultural/{name}.zip"  # public domain
+BASEMAP_EXTENT = (-125.0, 28.0, -108.0, 42.5)  # borders + metros: CA, NV, AZ, Baja, Sonora
+CITY_EXTENT = (-117.45, 32.45, -116.0, 33.6)   # OSM cities/towns: San Diego County + Tijuana/Tecate
+METRO_MIN_POP = 800_000      # Natural Earth places shown at any zoom (LA, Phoenix, Tijuana, Mexicali...)
+CITY_MIN_POP = 50_000        # OSM place=city shown at regional zoom
+TOWN_MARGIN_DEG = 0.12       # OSM towns (any size) within this margin of BBOX shown when zoomed in
 OVERPASS_URLS = [
     "https://overpass-api.de/api/interpreter",
     "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
