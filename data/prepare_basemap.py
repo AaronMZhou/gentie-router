@@ -45,7 +45,7 @@ def osm_places(refresh):
     path = RAW / "osm_places.json"
     if refresh or not path.exists():
         w, s, e, n = C.CITY_EXTENT
-        q = f'[out:json][timeout:90];node["place"~"^(city|town)$"]({s},{w},{n},{e});out tags;'
+        q = f'[out:json][timeout:90];node["place"~"^(city|town)$"]({s},{w},{n},{e});out body;'
         for url in C.OVERPASS_URLS:
             try:
                 r = requests.post(url, data={"data": q}, headers=HEADERS, timeout=150)
@@ -83,7 +83,8 @@ def borders(refresh):
 def cities(refresh):
     out = {}
     ne = natural_earth("ne_10m_populated_places_simple", refresh)
-    ne = ne[ne.intersects(box(*C.BASEMAP_EXTENT)) & (ne.pop_max >= C.METRO_MIN_POP)]
+    ne = ne[ne.intersects(box(*C.METRO_EXTENT)) & (ne.pop_max >= C.METRO_MIN_POP)
+            & (ne.scalerank <= C.METRO_MAX_SCALERANK)]
     for _, row in ne.iterrows():
         out[row["name"]] = {"name": row["name"], "population": int(row.pop_max), "tier": "metro",
                             "lonlat": [round(row.geometry.x, 5), round(row.geometry.y, 5)]}

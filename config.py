@@ -64,7 +64,9 @@ PARCEL_FILE_STEMS = ["parcels.gpkg", "parcels.shp", "parcels.geojson"]
 NATURAL_EARTH_URL = "https://naciscdn.org/naturalearth/10m/cultural/{name}.zip"  # public domain
 BASEMAP_EXTENT = (-125.0, 28.0, -108.0, 42.5)  # borders + metros: CA, NV, AZ, Baja, Sonora
 CITY_EXTENT = (-117.45, 32.45, -116.0, 33.6)   # OSM cities/towns: San Diego County + Tijuana/Tecate
+METRO_EXTENT = (-120.5, 30.5, -110.5, 36.5)    # Natural Earth metros: SoCal, Las Vegas, Phoenix/Tucson, Baja
 METRO_MIN_POP = 800_000      # Natural Earth places shown at any zoom (LA, Phoenix, Tijuana, Mexicali...)
+METRO_MAX_SCALERANK = 4      # ...that NE ranks as major (drops suburbs like Irvine, Long Beach, Mesa)
 CITY_MIN_POP = 50_000        # OSM place=city shown at regional zoom
 TOWN_MARGIN_DEG = 0.12       # OSM towns (any size) within this margin of BBOX shown when zoomed in
 # Existing grid: California Energy Commission transmission lines (official, public) - OSM misses

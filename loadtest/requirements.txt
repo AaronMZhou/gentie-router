@@ -1,0 +1,2 @@
+# Only needed for loadtest/: pip install -r loadtest/requirements.txt
+locust>=2.20          # 2.47.0 (also installs psutil)

@@ -20,6 +20,9 @@
     prot: { 1: "#9be3b5", 2: "#2fbf71" },
     tribal: "#e0a458",
     real: Cesium.Color.fromCssColorString("#ff4fd8"),
+    country: Cesium.Color.WHITE.withAlpha(0.85),
+    state: Cesium.Color.fromCssColorString("#c8d2ff").withAlpha(0.75),
+    city: Cesium.Color.WHITE,
   };
 
   // ------------------------------------------------------------------ viewer
@@ -307,9 +310,70 @@
   });
   const toggleContours = (on) => { globe.material = on ? contourMaterial : undefined; redraw(800); };
 
+  // ------------------------------------------------------------------ basemap context
+  // Country/state borders and city labels: static files from data/prepare_basemap.py, so they also
+  // show in demo mode.  Cities appear by tier as you zoom in: metros always, cities < 250 km, towns < 60 km.
+  const CITY_STYLE = {
+    metro: { font: "700 15px system-ui, sans-serif", size: 9, far: Number.POSITIVE_INFINITY },
+    city: { font: "600 13px system-ui, sans-serif", size: 7, far: 250e3 },
+    town: { font: "12px system-ui, sans-serif", size: 5, far: 60e3 },
+  };
+  const basemap = {}; // "borders" | "cities" -> CustomDataSource (lazy)
+  async function loadBasemap(name) {
+    if (basemap[name]) return basemap[name];
+    const r = await fetch(`basemap/${name}.geojson`);
+    if (!r.ok) throw new Error(r.statusText);
+    const ds = new Cesium.CustomDataSource(name);
+    for (const f of (await r.json()).features) {
+      const p = f.properties;
+      if (name === "borders") {
+        const country = p.kind === "country";
+        const lines = f.geometry.type === "MultiLineString" ? f.geometry.coordinates : [f.geometry.coordinates];
+        for (const line of lines) {
+          ds.entities.add({
+            polyline: {
+              positions: Cesium.Cartesian3.fromDegreesArray(line.flat()), clampToGround: true, width: country ? 3 : 2,
+              material: country ? COLORS.country : new Cesium.PolylineDashMaterialProperty({ color: COLORS.state, dashLength: 16 }),
+            },
+          });
+        }
+      } else {
+        const st = CITY_STYLE[p.tier] || CITY_STYLE.town;
+        const show = new Cesium.DistanceDisplayCondition(0, st.far);
+        ds.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(...f.geometry.coordinates),
+          point: {
+            pixelSize: st.size, color: COLORS.city, outlineColor: Cesium.Color.BLACK, outlineWidth: 1.5,
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: Number.POSITIVE_INFINITY,
+            distanceDisplayCondition: show,
+          },
+          label: {
+            text: p.name, font: st.font, fillColor: Cesium.Color.WHITE, outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 3, style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            horizontalOrigin: Cesium.HorizontalOrigin.LEFT, verticalOrigin: Cesium.VerticalOrigin.CENTER,
+            pixelOffset: new Cesium.Cartesian2(st.size, 0),
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: Number.POSITIVE_INFINITY,
+            distanceDisplayCondition: show,
+          },
+        });
+      }
+    }
+    viewer.dataSources.add(ds);
+    basemap[name] = ds;
+    return ds;
+  }
+
+  async function toggleBasemap(name, on) {
+    try {
+      const ds = on ? await loadBasemap(name) : basemap[name];
+      if (ds) ds.show = on;
+      redraw();
+    } catch (err) {
+      toast(`Could not load ${name} (run python data/prepare_basemap.py): ${err.message}`);
+    }
+  }
+
   // ------------------------------------------------------------------ view modes
-  // Top View: flat, high, steep (good for picking points).  Enhanced: 1.5x terrain, sun + shadows,
-  // low oblique camera, 3D towers and conductors.
   // Top View: basic map of the track - flat terrain, imagery, no lighting/shadows (cheapest).
   // Enhanced: 3D terrain x1.5, sun lighting, shadows, HDR.  Nothing here changes while the camera moves.
   async function applyViewSettings() {
@@ -891,6 +955,8 @@
   $("tglLines").onchange = (e) => toggleOverlay("powerlines", e.target.checked);
   $("tglBaseline").onchange = (e) => { layers.baseline.show = e.target.checked; redraw(600); };
   $("tglContours").onchange = (e) => toggleContours(e.target.checked);
+  $("tglCities").onchange = (e) => toggleBasemap("cities", e.target.checked);
+  $("tglBorders").onchange = (e) => toggleBasemap("borders", e.target.checked);
   $("vTop").onclick = () => { if (state.view !== "top") { stopFly(); state.view = "top"; applyView(); } };
   $("vEnh").onclick = () => { if (state.view !== "enhanced") { stopFly(); state.view = "enhanced"; applyView(); } };
   $("btnFly").onclick = startFly;
@@ -932,6 +998,8 @@
       $("dataBadge").className = "badge err";
     }
     drawRegion();
+    if ($("tglCities").checked) toggleBasemap("cities", true);
+    if ($("tglBorders").checked) toggleBasemap("borders", true);
     applyView();
     homeView();
     reset();

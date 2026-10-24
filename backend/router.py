@@ -280,7 +280,7 @@ class Router:
             "inventory": inventory,
             "land": land_group,
             "row": row,
-            "permitting_triggers": permitting_triggers(inventory, land_group, totals["high_fire_km"]),
+            "permitting_triggers": permitting_triggers(inventory, land_group, totals["overhead_high_fire_km"]),
             "baseline": baseline,
             "savings_vs_baseline_usd": round(float(baseline["est_cost_usd"] - total_cost)),
             "profile": profile,

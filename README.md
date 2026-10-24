@@ -50,6 +50,12 @@ python data/prepare_data.py --synthetic-all   # offline: synthetic placeholders 
 | Corridors | **California Energy Commission** transmission lines (official; 8 SDG&E 69/138 kV lines, ~85 km in the region) merged with OpenStreetMap via Overpass (`power=line/minor_line`, `highway=motorway/trunk/primary/secondary`). OSM alone had only ~30 km of the region's power lines | bit 1 road, bit 2 power line |
 | Substations | CEC substation data (Creelman, Santa Ysabel, Boulder Creek; public re-host because the CEC layer needs a token), merged with OSM | `overlays/substations.geojson` (click-to-snap targets and precomputed routing trees) |
 
+Map context (country/state borders and city labels) comes from a separate, quick script. Its output is committed in `frontend/basemap/`, so re-run it only to change the extent or population cut-offs in `config.py`:
+
+```bash
+python data/prepare_basemap.py           # Natural Earth borders + metros, OSM cities/towns -> frontend/basemap/
+```
+
 Everything is clipped to the bbox, reprojected to EPSG:32611 (UTM 11N) and burned onto one aligned 1030 × 1001 grid of 30 m cells. If a download fails, that layer is replaced by **synthetic placeholder data**. The script prints `*** SYNTHETIC PLACEHOLDER LAYERS: ... ***`, the layer is listed in `meta.json`, and the map shows an amber "SYNTHETIC data" badge. Overpass is often busy, so the script cycles through three mirrors before giving up.
 
 ## 2. Test routing without the API
@@ -77,7 +83,7 @@ Open **http://localhost:8000**. The backend serves the frontend too, so this one
 - **Load demo route** also shows an "About this demo" card. It explains that the route is a hypothetical example (not a real project) and gives the estimated cost with a breakdown, why the route goes where it does, and what it would take.
 - **Mouse:** left-drag pans, **right-drag looks around** from where you are, the wheel zooms, Ctrl- or middle-drag tilts. Hovering shows the elevation under the cursor.
 - Overhead segments are solid orange, underground segments are dashed cyan, and the straight baseline is a faint white line. The elevation profile shows total climb and descent.
-- Toggles: wildfire hazard (USFS WHP, draped image), HFTD/FHSZ tiers, protected land, tribal land, existing power lines, baseline, and 100 m elevation contours (off by default). **Reset** (or Esc) clears the route.
+- Toggles: wildfire hazard (USFS WHP, draped image), HFTD/FHSZ tiers, protected land, tribal land, existing power lines, baseline, 100 m elevation contours (off by default), cities & towns, and country/state borders. City labels appear by size as you zoom in: metros (LA, San Diego, Tijuana, Phoenix) always, cities like Escondido and El Cajon within 250 km, and towns like Ramona and Julian within 60 km. **Reset** (or Esc) clears the route.
 
 **Demo safety:** **Load demo route** reads `frontend/demo_route.json` and needs no backend. If the backend dies, serve just the static files and the demo still works:
 

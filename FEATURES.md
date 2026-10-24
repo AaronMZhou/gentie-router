@@ -19,11 +19,11 @@ Snapshot of every feature in Gen-tie Router and how finished it is. Last checked
 
 | Area | ✅ | 🔧 | ⚠️ | ⬜ |
 |---|---|---|---|---|
-| Data pipeline | 5 | 2 | 0 | 0 |
+| Data pipeline | 8 | 1 | 0 | 0 |
 | Cost model & routing | 7 | 0 | 1 | 0 |
 | Route outputs (schema v1.1) | 6 | 1 | 0 | 1 |
 | API & performance | 5 | 1 | 0 | 0 |
-| Frontend | 14 | 4 | 0 | 0 |
+| Frontend | 16 | 4 | 0 | 0 |
 | Validation | 1 | 0 | 1 | 0 |
 | HackOhio outline (planned) | 0 | 0 | 0 | 7 |
 
@@ -37,8 +37,10 @@ Snapshot of every feature in Gen-tie Router and how finished it is. Last checked
 | Elevation + slope (USGS 3DEP) | ✅ Done | |
 | Land status, ownership, named units (PAD-US 3.0) | ✅ Done | Allotted/fee tribal land outside reservations isn't in PAD-US, so it isn't flagged. |
 | Wildfire: continuous WHP 2024 + HFTD/FHSZ tiers, with fallback | ✅ Done | WHP reflects 2020 fuels; FHSZ SRA layer is from 2007. |
-| Corridors (OSM power lines + major roads) via Overpass with 3 mirrors | 🔧 Needs tweaks | OSM coverage is thin: only **2 tagged substations** in the bbox, and some distribution lines are missing. Substation snapping and the precomputed substation trees depend on this. |
+| Corridors: CEC transmission lines (8 SDG&E 69/138 kV lines, ~85 km) merged with OSM lines + major roads | ✅ Done | Upstream replaced the OSM-only data, which had ~30 km of lines. |
+| Substations (CEC: Creelman, Santa Ysabel, Boulder Creek, merged with OSM) | ✅ Done | Used for click-to-snap and the precomputed routing trees. |
 | Synthetic-placeholder fallback per layer + amber UI badge | ✅ Done | |
+| Basemap context (`data/prepare_basemap.py`) | ✅ Done | Natural Earth borders + metros, OSM cities/towns; falls back to Natural Earth only if Overpass is down. |
 | Real parcel polygons (SanGIS) | 🔧 Needs tweaks | Code path exists, but no parcel file is provided (`data/raw/` is absent), so parcel counts are **estimated from building density**. |
 
 ## 2. Cost model & routing (`backend/cost_model.py`, `backend/router.py`)
@@ -48,7 +50,7 @@ Snapshot of every feature in Gen-tie Router and how finished it is. Last checked
 | Per-cell overhead / underground cost grids (slope, fire, corridors, land) | ✅ Done | All weights in `config.py`; restart the server to apply changes. |
 | Least-cost path (8-connected, geometric) | ✅ Done | ~4–9 ms per route in the smoke test. |
 | Search window with full-grid fallback | ✅ Done | |
-| Precomputed per-substation Dijkstra trees | ✅ Done | Only covers the 2 OSM substations. |
+| Precomputed per-substation Dijkstra trees | ✅ Done | One tree per known substation. |
 | String-pulling (removes grid dog-legs, 1% tolerance) | ✅ Done | Came out of validation; fixed up to 1.3 km of drift. |
 | Overhead/underground segmentation with min run length (450 m) + transition cost | ✅ Done | |
 | **Overhead vs underground choice** | ⚠️ Works, weak result | At $10M/mi underground, almost no route buries any line. At $5M/mi, 84% of routes use some underground. Decide which number to demo, or add a UI slider. |
@@ -95,6 +97,8 @@ Snapshot of every feature in Gen-tie Router and how finished it is. Last checked
 | ▶ Fly along route | ✅ Done † | 20–60 s fly-through; click or Esc stops it. |
 | Render performance (FXAA, render-on-demand, no quality switching while dragging) | ✅ Done † | ~63 fps on Intel UHD vs 12 fps before (per README). |
 | Elevation contours (100 m) toggle + elevation readout on hover | ✅ Done † | |
+| City & town labels (zoom-tiered: 8 metros, 14 cities ≥ 50k, 7 local towns) | ✅ Done | `data/prepare_basemap.py` → `frontend/basemap/cities.geojson`. Works in demo mode. Verified in headless Chromium. |
+| Country (US–Mexico) and state borders | ✅ Done | Natural Earth 10m, simplified ~300 m. Verified in headless Chromium. |
 | Mouse controls (right-drag look-around, Ctrl/middle-drag tilt) | ✅ Done † | |
 | Overlay toggles (hazard, HFTD, protected, tribal, power lines, baseline) | 🔧 Needs tweaks | The backend serves a `roads` overlay, but there's no toggle for it. |
 | Panel depth vs API | 🔧 Needs tweaks | Not shown: `row.segments` (landholder-by-landholder list), `land.units_crossed`, `km_by_owner`, conductor/cable km. |

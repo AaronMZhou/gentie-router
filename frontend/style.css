@@ -109,6 +109,8 @@ button.primary:hover { filter: brightness(1.1); }
 .viewswitch button + button { border-left: 1px solid var(--line); }
 .viewswitch button.on { background: var(--accent); color: #1a1a1a; font-weight: 600; }
 button.fly { width: 100%; margin: 4px 0 10px; }
+.sw.city { width: 8px; height: 8px; border-radius: 50%; background: #fff; border: 1.5px solid #000; margin-right: 7px; }
+.sw.border { height: 0; border-top: 3px solid rgba(255, 255, 255, 0.85); box-shadow: 0 4px 0 -2px #c8d2ffbb; }
 .sw.contour { height: 8px; background: repeating-linear-gradient(0deg, rgba(255,255,255,0.6) 0 1px, transparent 1px 4px); }
 #readout { position: absolute; bottom: 36px; right: 12px; background: rgba(18, 22, 28, 0.85); padding: 6px 10px;
   border-radius: 6px; font-variant-numeric: tabular-nums; pointer-events: none; font-size: 12px; }

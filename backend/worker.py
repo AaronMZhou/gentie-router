@@ -22,16 +22,12 @@ def init_worker():
 
 def warm(_=None):
     """Touch a worker so the pool spawns it (and loads grids) before traffic arrives."""
-    if _router is None:
-        init_worker()
     time.sleep(0.2)  # hold the worker so concurrent warm() calls land on different processes
     return os.getpid()
 
 
 def route_json(start, end):
     """-> (status_code, json_bytes)."""
-    if _router is None:
-        init_worker()
     try:
         return 200, json.dumps(_router.route(start, end), separators=(",", ":")).encode()
     except RouteError as ex:
