@@ -37,17 +37,23 @@
   const scene = viewer.scene, globe = scene.globe;
   globe.depthTestAgainstTerrain = true;
   viewer.screenSpaceEventHandler.removeInputAction(Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
-  // resolves once real terrain heights can be sampled
+  // resolves once real terrain heights can be sampled; Top View swaps in flat terrain, so keep
+  // the 3D terrain provider for sampling heights and for switching back
+  const flatTerrain = new Cesium.EllipsoidTerrainProvider();
+  let worldTerrain = null;
   const terrainReady = new Promise((resolve) => {
     if (!terrain || terrain.ready) return resolve();
     terrain.readyEvent.addEventListener(() => resolve());
     terrain.errorEvent.addEventListener(() => resolve());
-  });
+  }).then(() => { if (terrain && terrain.ready) worldTerrain = terrain.provider; });
 
-  // Adaptive render quality (applyQuality): full quality when the camera is still, a light profile
-  // while it moves.  Measured on an Intel UHD iGPU at 2x DPR while panning: full device resolution
-  // + 4x MSAA + HDR + shadows = 6.8 fps; CSS resolution + FXAA, no HDR/shadows = 38 fps.
+  // Render settings are FIXED per view (applyViewSettings) - switching quality while dragging made
+  // brightness, shadows and terrain detail flicker.  Measured panning on an Intel UHD iGPU at 2x DPR:
+  // device resolution + 4x MSAA + HDR + shadows = 12 fps; CSS resolution + FXAA + HDR + shadows = 63 fps.
   // Render-on-demand: no frames are drawn while nothing changes (idle GPU ~0%).
+  viewer.useBrowserRecommendedResolution = true; // CSS-pixel resolution
+  scene.msaaSamples = 1;
+  scene.postProcessStages.fxaa.enabled = true;
   scene.requestRenderMode = true;
   scene.maximumRenderTimeChange = Infinity;
   globe.tileCacheSize = 1000;
@@ -198,8 +204,13 @@
   function frameRoute(duration = 1.6) {
     const r = state.route;
     if (!r) return homeView(duration);
-    if (state.view === "enhanced") { // side-on and low: look across the terrain at the line
-      frameBox(r.box, duration, { heading: bearingOf(r.start, r.end) + Math.PI / 2, pitchDeg: -30, rangeFactor: 2.8 });
+    if (state.view === "enhanced") { // side-on and low: look across the terrain at the line,
+      // from whichever side of it the camera is already on (no flipping to the far side)
+      const b = bearingOf(r.start, r.end), h = viewer.camera.heading;
+      const sides = [b + Math.PI / 2, b - Math.PI / 2];
+      const turn = (a) => Math.abs(Math.atan2(Math.sin(a - h), Math.cos(a - h)));
+      const heading = turn(sides[0]) <= turn(sides[1]) ? sides[0] : sides[1];
+      frameBox(r.box, duration, { heading, pitchDeg: -30, rangeFactor: 2.8 });
     } else {
       frameBox(r.box, duration);
     }
@@ -292,19 +303,21 @@
   // ------------------------------------------------------------------ view modes
   // Top View: flat, high, steep (good for picking points).  Enhanced: 1.5x terrain, sun + shadows,
   // low oblique camera, 3D towers and conductors.
-  function applyQuality() {
-    const enh = state.view === "enhanced", fast = state.moving || state.flying;
-    viewer.useBrowserRecommendedResolution = fast; // still: full device resolution
-    scene.msaaSamples = fast ? 1 : 4;
-    scene.postProcessStages.fxaa.enabled = fast;   // cheap edge smoothing instead of MSAA
-    scene.highDynamicRange = enh && !fast;
-    viewer.shadows = enh && !fast;                 // the shadow map re-renders on every camera move
-    viewer.terrainShadows = enh && !fast ? Cesium.ShadowMode.ENABLED : Cesium.ShadowMode.DISABLED;
-    globe.maximumScreenSpaceError = fast ? 2 : 1.33;
-    scene.requestRender();
+  // Top View: basic map of the track - flat terrain, imagery, no lighting/shadows (cheapest).
+  // Enhanced: 3D terrain x1.5, sun lighting, shadows, HDR.  Nothing here changes while the camera moves.
+  async function applyViewSettings() {
+    const enh = state.view === "enhanced";
+    scene.verticalExaggeration = enh ? ENH_EXAGGERATION : 1;
+    globe.enableLighting = enh;
+    scene.highDynamicRange = enh;
+    viewer.shadows = enh;
+    viewer.terrainShadows = enh ? Cesium.ShadowMode.ENABLED : Cesium.ShadowMode.DISABLED;
+    globe.maximumScreenSpaceError = enh ? 1.33 : 2;
+    if (!enh) scene.terrainProvider = flatTerrain;
+    await terrainReady;  // the 3D terrain may still be loading on first run
+    if (worldTerrain) scene.terrainProvider = state.view === "enhanced" ? worldTerrain : flatTerrain;
+    redraw();
   }
-  viewer.camera.moveStart.addEventListener(() => { state.moving = true; applyQuality(); });
-  viewer.camera.moveEnd.addEventListener(() => { state.moving = false; applyQuality(); });
 
   // Render-on-demand doesn't notice async work finishing (ground polylines, overlays, tiles for
   // newly added entities), so request frames for a short while after changing the scene.
@@ -314,18 +327,30 @@
     pump();
   }
 
-  function applyView(reframe = true) {
+  // Switching views keeps the camera where it is; only the rendering changes.
+  async function applyView() {
     const enh = state.view === "enhanced";
-    scene.verticalExaggeration = enh ? ENH_EXAGGERATION : 1;
-    globe.enableLighting = enh;
-    applyQuality();
-    redraw();
     layers.routeTop.show = !enh;
     layers.routeEnh.show = layers.hardware.show = enh;
     $("vTop").classList.toggle("on", !enh);
     $("vEnh").classList.toggle("on", enh);
+    $("readout").hidden = true;
     try { localStorage.setItem("gentie.view", state.view); } catch (_) { /* storage blocked */ }
-    if (reframe) (state.route ? frameRoute(1.2) : homeView(1.2));
+    await applyViewSettings();
+    if (enh) liftCameraAboveTerrain();
+  }
+
+  // Coming from flat Top View, a low camera could end up inside the (exaggerated) 3D terrain.
+  async function liftCameraAboveTerrain() {
+    if (!worldTerrain) return;
+    const cam = Cesium.Cartographic.clone(viewer.camera.positionCartographic);
+    const ground = Cesium.Cartographic.clone(cam);
+    try { await Cesium.sampleTerrain(worldTerrain, 11, [ground]); } catch (_) { return; }
+    const minH = (ground.height || 0) * ENH_EXAGGERATION + 150;
+    if (cam.height < minH) {
+      viewer.camera.setView({ destination: Cesium.Cartesian3.fromRadians(cam.longitude, cam.latitude, minH),
+        orientation: { heading: viewer.camera.heading, pitch: viewer.camera.pitch, roll: 0 } });
+    }
   }
 
   // ------------------------------------------------------------------ routing
@@ -453,7 +478,7 @@
     if (!r || !r.towerLL.length) return;
     await terrainReady;
     const carto = r.towerLL.map(([lon, lat]) => Cesium.Cartographic.fromDegrees(lon, lat));
-    try { await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, carto); } catch (_) { /* flat fallback */ }
+    try { if (worldTerrain) await Cesium.sampleTerrainMostDetailed(worldTerrain, carto); } catch (_) { /* flat fallback */ }
     if (seq !== state.routeSeq) return; // a newer route replaced this one
     const e = ENH_EXAGGERATION;
     const ground = carto.map((c) => (c.height || 0) * e);
@@ -518,7 +543,8 @@
 
     await terrainReady;
     const carto = pts.map(([lon, lat]) => Cesium.Cartographic.fromDegrees(lon, lat));
-    try { await Cesium.sampleTerrain(viewer.terrainProvider, 12, carto); } catch (_) { /* flat fallback */ }
+    // Top View flies over flat ground; Enhanced follows the (exaggerated) 3D terrain
+    try { if (worldTerrain && state.view === "enhanced") await Cesium.sampleTerrain(worldTerrain, 12, carto); } catch (_) { /* flat */ }
     const e = scene.verticalExaggeration, N = pts.length, AHEAD = 24; // look ~600 m ahead
     const ground = carto.map((c) => (c.height || 0) * e);
     const clear = ground.map((_, i) => Math.max(...ground.slice(Math.max(i - 8, 0), Math.min(i + AHEAD, N - 1) + 1)) + 280);
@@ -534,8 +560,6 @@
 
     const km = (N - 1) * STEP / 1000;
     const duration = Math.min(Math.max(km * 3, 20), 60); // seconds
-    state.flying = true;
-    applyQuality();                // light profile for the whole flight
     scene.requestRenderMode = false; // the camera is driven from preRender, so render every frame
 
     const t0 = performance.now();
@@ -562,9 +586,8 @@
     if (!fly) return;
     scene.preRender.removeEventListener(fly.tick);
     fly = null;
-    state.flying = false;
     scene.requestRenderMode = true;
-    applyQuality();
+    redraw(500);
     $("btnFly").textContent = "▶ Fly along route";
     setStatus("");
   }
@@ -574,6 +597,8 @@
     const b = p.baseline;
     $("results").hidden = false;
     $("demoTag").hidden = !isDemo;
+    $("demoStory").hidden = !isDemo;
+    if (isDemo) renderDemoStory(p, features);
     $("rCost").textContent = fmtUsd(p.total_cost_usd);
     $("rKm").textContent = fmtKm(p.total_km);
     $("rOh").textContent = fmtKm(p.overhead_km);
@@ -633,6 +658,56 @@
         <span class="muted">${fmtKm(s.length_km)}</span><span class="n">${fmtUsd(s.est_cost_usd)}</span>`;
       ol.appendChild(li);
     }
+  }
+
+  // Plain-language explanation of the demo route, built from its own numbers.
+  function renderDemoStory(p, features) {
+    const b = p.baseline, segs = features.filter((f) => f.properties.kind === "segment");
+    const costOf = (mode) => segs.filter((f) => f.properties.mode === mode).reduce((t, f) => t + f.properties.est_cost_usd, 0);
+    const perMile = p.total_cost_usd / (p.total_km / 1.609344);
+    const detour = p.total_km - b.length_km;
+    const why = [];
+    if (b.high_risk_km > p.overhead_high_risk_km + 0.05) {
+      why.push(`<b>Wildfire:</b> a straight line would string ${fmtKm(b.high_risk_km)} of overhead conductor through high wildfire
+        hazard; this route has ${fmtKm(p.overhead_high_risk_km)} (average hazard ${p.mean_fire_risk.toFixed(2)} vs
+        ${b.mean_fire_risk.toFixed(2)} on a 0–1 scale). It follows lower-hazard valleys instead of chaparral ridges.`);
+    }
+    if (b.protected_km > p.protected_km) {
+      why.push(`<b>Protected land:</b> the straight line crosses ${fmtKm(b.protected_km)} of preserves; this route crosses
+        ${p.protected_km ? fmtKm(p.protected_km) : "none"}.`);
+    }
+    if ((b.tribal_km || 0) > (p.tribal_km || 0)) {
+      why.push(`<b>Tribal land:</b> the straight line crosses ${fmtKm(b.tribal_km)}; this route ${p.tribal_km ? fmtKm(p.tribal_km) : "avoids it"}.`);
+    }
+    why.push(`<b>Trade-off:</b> ${detour >= 0 ? `${fmtKm(detour)} (${Math.round((100 * detour) / b.length_km)}%) longer` : `${fmtKm(-detour)} shorter`}
+      than a straight line, but estimated ${fmtUsd(Math.abs(b.est_cost_usd - p.total_cost_usd))}
+      ${b.est_cost_usd >= p.total_cost_usd ? "cheaper" : "more expensive"} once hazard and land are priced in.`);
+    const inv = p.inventory || {}, row = p.row || {};
+    const rows = [
+      [`Overhead line · ${fmtKm(p.overhead_km)}`, costOf("overhead")],
+      ...(p.underground_km > 0 ? [[`Underground cable · ${fmtKm(p.underground_km)}`, costOf("underground")]] : []),
+      ...(p.n_transitions ? [[`Overhead↔underground transitions · ${p.n_transitions}`, p.transition_cost_usd]] : []),
+    ];
+    $("demoStory").innerHTML = `
+      <h4>About this demo: ${p.demo_title || p.demo_label || "example route"}</h4>
+      <p>${p.demo_blurb || "A hypothetical example route, not a real proposed project."}</p>
+      <h4>Estimated cost: ${fmtUsd(p.total_cost_usd)} <span class="muted">(≈ ${fmtUsd(perMile)} per mile)</span></h4>
+      <table>
+        ${rows.map(([k, v]) => `<tr><td>${k}</td><td>${fmtUsd(v)}</td></tr>`).join("")}
+        <tr class="total"><td>Total · ${fmtKm(p.total_km)}</td><td>${fmtUsd(p.total_cost_usd)}</td></tr>
+        <tr><td class="muted">Straight overhead line · ${fmtKm(b.length_km)}</td><td class="muted">${fmtUsd(b.est_cost_usd)}</td></tr>
+      </table>
+      <h4>Why it goes this way</h4>
+      <ul>${why.map((w) => `<li>${w}</li>`).join("")}</ul>
+      <h4>What it would take</h4>
+      <ul>
+        <li>${inv.tower_count ?? p.tower_count} overhead structures, ~${inv.conductor_km_est ?? "?"} km of conductor</li>
+        ${row.landholder_negotiations_est ? `<li>~${row.landholder_negotiations_est} landholder agreements (${row.private_parcels} private parcels, estimated)</li>` : ""}
+        ${(p.permitting_triggers || []).length ? `<li>Reviews: ${p.permitting_triggers.map((t) => t.code.replaceAll("_", " ")).join(", ")}</li>` : ""}
+      </ul>
+      <p class="caveat">Costs are planning-level estimates from the model's assumptions ($2M/mi overhead and $10M/mi
+        underground base, scaled by slope, wildfire hazard, corridors and land) — not a quote or a real project's cost.
+        Real costs could plausibly be 0.5–2× these.</p>`;
   }
 
   function renderProfile(profile) {
@@ -778,8 +853,9 @@
     if (!cart) { out.hidden = true; return; }
     const c = Cesium.Cartographic.fromCartesian(cart);
     out.hidden = false;
-    out.textContent = `${Cesium.Math.toDegrees(c.latitude).toFixed(4)}, ${Cesium.Math.toDegrees(c.longitude).toFixed(4)} · ` +
-      `elevation ${Math.round(c.height / scene.verticalExaggeration).toLocaleString()} m`;
+    const ll = `${Cesium.Math.toDegrees(c.latitude).toFixed(4)}, ${Cesium.Math.toDegrees(c.longitude).toFixed(4)}`;
+    out.textContent = state.view === "enhanced"  // Top View is flat: no meaningful elevation to show
+      ? `${ll} · elevation ${Math.round(c.height / scene.verticalExaggeration).toLocaleString()} m` : ll;
   }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 
   // ------------------------------------------------------------------ UI wiring
@@ -835,7 +911,7 @@
       $("dataBadge").className = "badge err";
     }
     drawRegion();
-    applyView(false);
+    applyView();
     homeView();
     reset();
   }

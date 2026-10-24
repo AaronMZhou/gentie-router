@@ -112,3 +112,15 @@ button.fly { width: 100%; margin: 4px 0 10px; }
 .sw.contour { height: 8px; background: repeating-linear-gradient(0deg, rgba(255,255,255,0.6) 0 1px, transparent 1px 4px); }
 #readout { position: absolute; bottom: 36px; right: 12px; background: rgba(18, 22, 28, 0.85); padding: 6px 10px;
   border-radius: 6px; font-variant-numeric: tabular-nums; pointer-events: none; font-size: 12px; }
+
+.story { margin: 0 0 12px; padding: 10px 12px; border-radius: 8px; background: rgba(255, 140, 26, 0.08);
+  border: 1px solid rgba(255, 140, 26, 0.35); font-size: 12px; }
+.story h4 { margin: 0 0 4px; font-size: 13px; }
+.story p { margin: 4px 0 8px; color: #cfd6de; }
+.story table { width: 100%; border-collapse: collapse; margin: 4px 0 8px; }
+.story td { padding: 2px 0; border-bottom: 1px solid var(--line); }
+.story td:last-child { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.story tr.total td { font-weight: 700; border-bottom: 0; }
+.story ul { margin: 2px 0 8px; padding-left: 16px; }
+.story li { margin: 2px 0; }
+.story .caveat { color: var(--muted); font-size: 11px; margin-bottom: 0; }

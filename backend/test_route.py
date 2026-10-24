@@ -133,6 +133,12 @@ def main():
         demo = results[0]
         demo["properties"]["demo"] = True
         demo["properties"]["demo_label"] = CASES[0][0].replace("DEMO  ", "")
+        demo["properties"]["demo_title"] = "Santa Ysabel Valley solar → Creelman Substation"
+        demo["properties"]["demo_blurb"] = (
+            "A hypothetical solar project site in the Santa Ysabel Valley (San Diego County backcountry), "
+            "connected by a new gen-tie line to SDG&E's existing Creelman 69 kV substation in Ramona. "
+            "It is not a real proposed project — it's a worked example of how the router trades off "
+            "construction cost, wildfire hazard and protected or tribal land.")
         C.DEMO_ROUTE_PATH.write_text(json.dumps(demo))
         print(f"saved demo route -> {C.DEMO_ROUTE_PATH}")
     print("\nALL CHECKS PASSED")
