@@ -32,6 +32,7 @@
     ],
     "fire_risk": "USFS WRC Wildfire Hazard Potential 2024 (30 m)",
     "corridors": "OpenStreetMap via Overpass",
+    "grid": "CEC transmission lines + substations, OSM supplement",
     "parcels": "ESTIMATED from USFS WRC building count"
   },
   "land_units": [
@@ -388,5 +389,5 @@
       "gap": "4"
     }
   ],
-  "created_utc": "2026-10-24T16:50:22+00:00"
+  "created_utc": "2026-10-24T19:09:25+00:00"
 }

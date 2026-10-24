@@ -57,7 +57,7 @@ button.primary:hover { filter: brightness(1.1); }
 .sw.hftd { background: linear-gradient(90deg, #ff6b3555, #e6303088); border: 1px dashed #e63030; }
 .sw.prot { background: #2fbf71aa; }
 .sw.tribal { background: #e0a458aa; border: 1px solid #e0a458; }
-.sw.line { background: #ffe14d; height: 3px; }
+.sw.line { background: linear-gradient(90deg, #ffe14d 50%, #fff6b0 50%); height: 4px; }
 .sw.base { border-top: 2px solid rgba(255, 255, 255, 0.6); height: 0; }
 .sw.oh { background: var(--oh); height: 4px; }
 .sw.real { background: #ff4fd8; height: 4px; }

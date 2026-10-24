@@ -14,7 +14,8 @@
     end: Cesium.Color.fromCssColorString("#b57cff"),
     bbox: Cesium.Color.fromCssColorString("#ffffff").withAlpha(0.8),
     baseline: Cesium.Color.WHITE.withAlpha(0.55),
-    line: Cesium.Color.fromCssColorString("#ffe14d"),
+    line: Cesium.Color.fromCssColorString("#ffe14d"),     // existing 69 kV
+    line138: Cesium.Color.fromCssColorString("#fff6b0"),  // existing 138 kV (pale, thicker - not the route orange)
     fire: { 1: "#ffd23f", 2: "#ff6b35", 3: "#e63030" },
     prot: { 1: "#9be3b5", 2: "#2fbf71" },
     tribal: "#e0a458",
@@ -248,9 +249,10 @@
           });
         }
       }
-      if (ent.polyline) {
-        ent.polyline.material = COLORS.line.withAlpha(0.9);
-        ent.polyline.width = 2.5;
+      if (ent.polyline) { // existing grid: CEC transmission lines by voltage; OSM-only extras thinner
+        const kv = Number(props.kv) || 0;
+        ent.polyline.material = (kv >= 115 ? COLORS.line138 : COLORS.line).withAlpha(props.source === "CEC" ? 0.95 : 0.7);
+        ent.polyline.width = kv >= 115 ? 4 : props.source === "CEC" ? 2.5 : 1.8;
       }
       if (ent.billboard) { // substations: replace default pin with a labelled marker
         ent.billboard = undefined;
@@ -259,7 +261,7 @@
           heightReference: Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: Number.POSITIVE_INFINITY,
         });
         ent.label = new Cesium.LabelGraphics({
-          text: `${props.name}${props.voltage ? ` (${Math.round(+props.voltage / 1000)} kV)` : ""}`,
+          text: `${props.name}${props.voltage_label ? ` (${props.voltage_label})` : ""}`,
           font: "12px system-ui, sans-serif", fillColor: Cesium.Color.WHITE, outlineColor: Cesium.Color.BLACK,
           outlineWidth: 3, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(0, -16),
           heightReference: Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: Number.POSITIVE_INFINITY,
@@ -918,7 +920,7 @@
         badge.textContent = `SYNTHETIC data: ${b.synthetic_layers.join(", ")}`;
         badge.className = "badge warn";
       } else {
-        badge.textContent = "Real data · 3DEP · PAD-US · USFS WHP · CPUC HFTD · OSM";
+        badge.textContent = "Real data · 3DEP · PAD-US · USFS WHP · CPUC HFTD · CEC · OSM";
         badge.className = "badge";
       }
       toggleOverlay("substations", true);

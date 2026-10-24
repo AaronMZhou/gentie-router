@@ -47,7 +47,8 @@ python data/prepare_data.py --synthetic-all   # offline: synthetic placeholders 
 | Land status | PAD-US 3.0 Fee (USGS ArcGIS service) | `protected.tif` 2 = GAP 1–2 or state park / wilderness, 1 = GAP 3 multiple-use; `owner.tif` private / federal / state / local / tribal / ngo; `landunit.tif` id of the named PAD-US unit |
 | Wildfire hazard (continuous) | USFS Wildfire Risk to Communities, **Wildfire Hazard Potential 2024, 30 m** (burn probability × intensity), via the imagery.geoplatform.gov ImageServer | `firerisk.tif` 0–1 = clip(WHP / 25,000)^0.5. **Fallback** if the download fails: derived from the tier layer below (0 / 0.25 / 0.5 / 1.0) |
 | Wildfire tier (regulatory) | CPUC High Fire-Threat District (Tier 2/3) + CAL FIRE FHSZ (SRA 2007, LRA 2011), max of the two | `fire.tif` 0–3 |
-| Corridors | OpenStreetMap via Overpass: `power=line/minor_line`, `highway=motorway/trunk/primary/secondary` | bit 1 road, bit 2 power line |
+| Corridors | **California Energy Commission** transmission lines (official; 8 SDG&E 69/138 kV lines, ~85 km in the region) merged with OpenStreetMap via Overpass (`power=line/minor_line`, `highway=motorway/trunk/primary/secondary`). OSM alone had only ~30 km of the region's power lines | bit 1 road, bit 2 power line |
+| Substations | CEC substation data (Creelman, Santa Ysabel, Boulder Creek; public re-host because the CEC layer needs a token), merged with OSM | `overlays/substations.geojson` (click-to-snap targets and precomputed routing trees) |
 
 Everything is clipped to the bbox, reprojected to EPSG:32611 (UTM 11N) and burned onto one aligned 1030 × 1001 grid of 30 m cells. If a download fails, that layer is replaced by **synthetic placeholder data**. The script prints `*** SYNTHETIC PLACEHOLDER LAYERS: ... ***`, the layer is listed in `meta.json`, and the map shows an amber "SYNTHETIC data" badge. Overpass is often busy, so the script cycles through three mirrors before giving up.
 
@@ -92,14 +93,14 @@ To serve the frontend separately from the API, set `API_BASE: "http://localhost:
 python -m backend.validate   # prints metrics, writes frontend/validation.json for the "Compare to real line" button
 ```
 
-Can the router reproduce existing SDG&E 69 kV lines from OSM? Each line is **removed from the corridor layer** before routing between its endpoints (leave-one-out). Otherwise the "follow existing lines" discount would just trace it. Distances are sampled every 10 m along our route.
+Can the router reproduce existing SDG&E 69 kV lines from OSM? Each line is **removed from the corridor layer** before routing between its endpoints (leave-one-out). Lines are identified by their OSM ref; the CEC copy of the same circuit is removed too, by cutting every other line within 200 m of the hidden one. Otherwise the "follow existing lines" discount would just trace it. Distances are sampled every 10 m along our route.
 
 | Line (real length) | Variant | Mean distance to real line | Within 500 m |
 |---|---|---|---|
 | 637, Creelman → east (8.7 km) | **Router, line hidden** | **1,520 m** | **13%** |
 | | Straight line (reference) | 177 m | 100% |
-| | Router, line known (co-location) | 466 m | 64% |
-| | Line hidden, preserves passable | 302 m | 69% |
+| | Router, line known (co-location) | 304 m | 66% |
+| | Line hidden, preserves passable | 176 m | 89% |
 | 635, Creelman → south (9.2 km in-region) | **Router, line hidden** | **1,425 m** | **18%** |
 | | Straight line (reference) | 153 m | 100% |
 | | Router, line known (co-location) | 30 m | 100% |
@@ -107,7 +108,7 @@ Can the router reproduce existing SDG&E 69 kV lines from OSM? Each line is **rem
 
 What this shows:
 - **The router does not reproduce these lines, and a straight line is a better predictor of where they are.** These 69 kV lines are nearly straight and predate today's constraints.
-- **Line 637 crosses 3.4 km of county/BLM preserves** (Simon Preserve, Mt. Gower Preserve), which the model treats as near-impassable for new right-of-way. Making preserves passable cuts the error from 1,520 m to 302 m, so most of the gap is a deliberate modelling choice, not noise.
+- **Line 637 crosses 3.4 km of county/BLM preserves** (Simon Preserve, Mt. Gower Preserve), which the model treats as near-impassable for new right-of-way. Making preserves passable cuts the error from 1,520 m to 176 m (89% within 500 m), so most of the gap is a deliberate modelling choice, not noise.
 - **Line 635's gap has no single cause.** Removing fire, slope, roads, the power-line discount or preserves one at a time each changes it by under 15%. The cost surface has a near-equal alternative corridor to the east via Cañada de San Vicente.
 - **Two fixes came out of this.** (1) *String-pulling*: on near-uniform cost, the 8-connected grid path dog-legged up to 1.3 km off the true shortest line. The router now replaces zig-zags with straight spans wherever they cost no more (1% tolerance), and a pure-distance route now matches the straight line within 153–177 m. (2) *Co-location*: a preserve crossed **inside an existing power-line easement** costs ×3 instead of ×1000. With the line known, the router now follows line 635 within 30 m.
 - This is 2 lines in one region. It's a sanity check, not a statistical validation.
@@ -279,7 +280,7 @@ Routing uses `skimage.graph.route_through_array` (8-connected, geometric distanc
 - The optimizer prices each cell independently. Transition costs, minimum span lengths, angle structures and tower placement are applied **after** routing, so they don't influence the path itself.
 - Parcel count is reported but **not priced**, so the router can favour low-hazard valleys that are also the most subdivided (the demo route crosses ~108 estimated parcels). Also not modelled: habitat and waters, visual impact, geotech, existing-line capacity, access roads, line losses, the interconnection queue.
 - The 30 m grid with 8-connectivity gives stair-stepped paths. Lengths come from the simplified geometry, which is about 2–8% shorter than the raw grid path.
-- OSM coverage is uneven: only 2 tagged substations in the bbox, and some distribution lines are missing.
+- Existing lines come from the CEC transmission layer (69 kV and up) plus OSM. Distribution lines (12 kV) are mostly missing, and substation capacity isn't modelled: the router will happily connect to a small 69 kV substation that might need upgrades to accept a project.
 - Cells outside the lon/lat bbox (the UTM grid is slightly larger) are near-impassable, so routes stay inside the box.
 - The Cesium ion token in `config.js` is visible to anyone who loads the page. Restrict its allowed URLs in your Cesium ion dashboard before deploying publicly.
 

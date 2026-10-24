@@ -60,6 +60,15 @@ BUILDINGS_URL = ("https://imagery.geoplatform.gov/iipp/rest/services/Fire_Aviati
 # Optional real parcels: drop data/raw/parcels.gpkg|.shp|.geojson (e.g. the SanGIS PARCELS layer,
 # downloaded under the SanGIS end-user agreement) and re-run prepare_data.py.
 PARCEL_FILE_STEMS = ["parcels.gpkg", "parcels.shp", "parcels.geojson"]
+# Existing grid: California Energy Commission transmission lines (official, public) - OSM misses
+# ~2/3 of the SDG&E 69 kV network here.  Substations: CEC substation data (public re-host; the
+# CEC-hosted layer requires a token).  OSM lines/substations are merged in as a supplement.
+CEC_LINES_URL = ("https://services3.arcgis.com/bWPjFyq029ChCGur/ArcGIS/rest/services/"
+                 "Transmission_Line/FeatureServer/2")
+CEC_SUBSTATIONS_URL = ("https://services1.arcgis.com/4TXrdeWh0RyCqPgB/arcgis/rest/services/"
+                       "California_Electric_Substations/FeatureServer/0")
+# CEC substation voltage-class flags -> nominal kV used in labels
+CEC_SUBSTATION_KV = {"kV_33_TO_9": 69, "kV_110_TO_": 138, "kV_220_To_": 230, "kV_345_To_": 500}
 OVERPASS_URLS = [
     "https://overpass-api.de/api/interpreter",
     "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
