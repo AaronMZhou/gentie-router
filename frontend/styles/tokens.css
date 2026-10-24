@@ -1,0 +1,55 @@
+/* Gen-tie Router design tokens. Guide: styles/STYLES.md.
+   Themes are scoped by [data-theme] so any subtree can pin a theme (preview.html does). */
+
+:root {
+  /* type */
+  --font-display: "Instrument Serif", Georgia, serif;
+  --font-body: Geist, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, Menlo, monospace;
+  --fs-hero: clamp(54px, 8vw, 112px);
+  --fs-1: 60px;   /* page title (route header) */
+  --fs-2: 44px;   /* stat numbers, section titles */
+  --fs-3: 28px;   /* cell / modal headings, badges */
+  --fs-4: 26px;   /* card titles */
+  --fs-lead: 17px;
+  --fs-body: 14px;
+  --fs-small: 12px;
+  --fs-mono: 11px;
+  --fs-micro: 10px; /* pills */
+  --track-mono: .14em;
+
+  /* spacing, 4 px base */
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px;
+  --s-5: 24px; --s-6: 32px; --s-7: 48px; --s-8: 64px;
+
+  /* radii */
+  --r-sm: 10px; --r-md: 16px; --r-lg: 18px; --r-pill: 99px;
+
+  --grid-size: 64px;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+}
+
+/* Night Grid (dark) is the fallback when no data-theme is set */
+:root, [data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #02030a; --bg2: #05070f; --surf: #0a0e1c;
+  --line: #dee4f521; --line2: #dee4f540;
+  --text: #edeff6; --muted: #9aa0b6;
+  --acc: #8fb4ff; --acc2: #ff8a5b; --ok: #7ef2c4;
+  --glow: 0 0 18px #8fb4ff66;
+  --mapbg: #060914; --contour: #8fb4ff1c;
+  --route-1: var(--acc); --route-2: #ff8a5b; --route-3: #9aa0b6; --route-4: #7ef2c4;
+}
+
+/* Solar Paper (light) */
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f3f1ea; --bg2: #ebe8de; --surf: #fbfaf6;
+  --line: #1a1d1a1f; --line2: #1a1d1a3a;
+  /* --muted is #6b7068 in the spec; darkened one step to clear 4.5:1 on --bg (4.49 -> 4.55) */
+  --text: #121512; --muted: #6a6f67;
+  --acc: #0f9d6b; --acc2: #e0682b; --ok: #0f9d6b;
+  --glow: 0 0 14px #0f9d6b44;
+  --mapbg: #e6e3d7; --contour: #0f9d6b26;
+  --route-1: var(--acc); --route-2: #e0682b; --route-3: #6a6f67; --route-4: #2f6fd0;
+}
