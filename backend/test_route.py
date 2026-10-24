@@ -5,6 +5,7 @@ Stage-2 smoke test: route a few project -> substation pairs without the API.
     python -m backend.test_route --save-demo  # also write frontend/demo_route.json
 """
 import argparse
+import dataclasses
 import json
 import time
 
@@ -128,6 +129,43 @@ def main():
         raise AssertionError("out-of-region start should fail")
     except RouteError as ex:
         print(f"\nout-of-region check OK: {ex}")
+
+    # strategy presets: balanced == default; presets search different paths, priced on the balanced grid
+    S, CREELMAN = CASES[0][1], CREELMAN_SUB
+    r = router
+    base = r.route(S, CREELMAN)
+    base["properties"].pop("compute_ms")
+    again = r.route(S, CREELMAN, preset="balanced")
+    again["properties"].pop("compute_ms")
+    assert base == again
+    assert base["properties"]["preset"] == "balanced"
+    alts = {p: r.route(S, CREELMAN, preset=p) for p in C.PRESETS}
+    geoms = {p: json.dumps([f["geometry"] for f in fc["features"] if f["properties"].get("kind") == "segment"]) for p, fc in alts.items()}
+    print()
+    for p, fc in alts.items():
+        q = fc["properties"]
+        print(f"preset {p:12s} {q['total_km']:6.2f} km  {fmt_usd(q['total_cost_usd'])}  OH {q['overhead_km']:.2f} UG {q['underground_km']:.2f}  "
+              f"OH high-hazard {q['overhead_high_risk_km']:.2f} km")
+        check_schema(fc)
+    assert len(set(geoms.values())) >= 3, "presets must give visibly different routes"
+    # pricing is always on the balanced grid: a reference Router that searches on the preset's routing/mode
+    # arrays but holds the balanced cost arrays must reproduce each preset route and its cost exactly...
+    assert abs(alts["balanced"]["properties"]["total_cost_usd"] - base["properties"]["total_cost_usd"]) <= 1
+    for p in C.PRESETS:
+        if p == "balanced":
+            continue
+        pg = build_cost_grids(overrides=C.PRESETS[p]["overrides"])
+        ref = Router(dataclasses.replace(grids, routing=pg.routing, mode=pg.mode)).route(S, CREELMAN)
+        assert json.dumps([f["geometry"] for f in ref["features"] if f["properties"]["kind"] == "segment"]) == geoms[p], p
+        assert abs(ref["properties"]["total_cost_usd"] - alts[p]["properties"]["total_cost_usd"]) <= 1, p
+        # ...and pricing on the preset's own grid would give a different number (underground: UG at $4M/mi)
+        if p == "underground":
+            own = Router(pg).route(S, CREELMAN)["properties"]["total_cost_usd"]
+            assert abs(own - alts[p]["properties"]["total_cost_usd"]) > 1e6, (own, alts[p]["properties"]["total_cost_usd"])
+            print(f"underground preset priced on balanced grid {fmt_usd(alts[p]['properties']['total_cost_usd'])} "
+                  f"vs on its own search grid {fmt_usd(own)}")
+    try: r.route(S, CREELMAN, preset="nope"); raise AssertionError("unknown preset accepted")
+    except RouteError: pass
 
     if args.save_demo:
         demo = results[0]

@@ -145,6 +145,22 @@ TRIBAL_PENALTY = 10.0        # reservations / trust land: routing penalty (passa
                              # consent + consultation; strongly avoided but not forbidden)
 OUTSIDE_REGION_PENALTY = 1e4 # cells in the projected grid but outside the lon/lat bbox
 
+# Strategy presets: weight overrides for the SEARCH only.  Every reported cost is still priced on the
+# balanced (unmodified) grid so routes stay comparable.  Protected / tribal penalties are never
+# relaxed: they stand in for legal constraints, not preferences.
+PRESETS = {
+    "balanced": {"label": "Balanced", "blurb": "Default cost model: construction cost, wildfire hazard and land status.",
+                 "overrides": {}},
+    "avoid_fire": {"label": "Avoid fire", "blurb": "Weights overhead line in high wildfire hazard and HFTD Tier 3 much more heavily.",
+                   "overrides": {"OH_FIRE_RISK_MAX_MULT": 10.0, "OH_FIRE_TIER_MULT": {0: 1.0, 1: 1.0, 2: 2.0, 3: 5.0}}},
+    "cheapest": {"label": "Direct", "blurb": "Lighter fire and managed-land weighting: the shortest practical path. "
+                                             "Protected and tribal penalties kept.",
+                 "overrides": {"MANAGED_LAND_MULT": 1.0, "OH_FIRE_RISK_MAX_MULT": 1.5,
+                               "OH_FIRE_TIER_MULT": {0: 1.0, 1: 1.0, 2: 1.1, 3: 1.2}}},
+    "underground": {"label": "Prefer underground", "blurb": "Searches as if burial cost ~$4M/mi, so the route favours undergrounding.",
+                    "overrides": {"UNDERGROUND_COST_PER_MILE": 4_000_000}},
+}
+
 # Post-processing of the route
 MIN_SEGMENT_M = 450.0        # overhead/underground runs shorter than this are merged into neighbours
 TRANSITION_COST_USD = 750_000  # ASSUMPTION: riser pole / transition structure per OH<->UG switch

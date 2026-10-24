@@ -82,6 +82,22 @@ def main():
         assert requests.post(f"{BASE}/route", json={"start": [1]}).status_code == 422
         print("3. out-of-region -> 400 (not cached), malformed -> 422")
 
+        # 3b. presets: default == balanced (and == in-process Router), avoid_fire differs, unknown -> 400
+        s = [-116.69, 33.10]
+        r = requests.post(f"{BASE}/route", json={"start": s, "end": CREELMAN, "preset": "avoid_fire"}, timeout=60)
+        assert r.status_code == 200 and r.json()["properties"]["preset"] == "avoid_fire", r.text[:200]
+        fire = r.json()
+        code, _, default = post(s, CREELMAN)
+        ref = direct.route(s, CREELMAN)
+        for fc in (default, ref):
+            fc["properties"].pop("compute_ms")
+        assert code == 200 and default == ref, "default /route != in-process Router"
+        assert default["properties"]["preset"] == "balanced"
+        assert fire["features"] != default["features"], "avoid_fire gave the balanced route"
+        r = requests.post(f"{BASE}/route", json={"start": s, "end": CREELMAN, "preset": "nope"}, timeout=60)
+        assert r.status_code == 400 and "preset" in r.json()["detail"], r.text
+        print("3b. preset=avoid_fire -> 200 + differs; omitted == in-process balanced; preset=nope -> 400")
+
         # 4. event loop stays responsive while all workers are busy
         busy = [[float(rng.uniform(-116.85, -116.60)), float(rng.uniform(32.97, 33.18))] for _ in range(24)]
         with ThreadPoolExecutor(24) as ex:

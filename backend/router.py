@@ -83,9 +83,21 @@ class Router:
         self.cs = C.CELL_SIZE_M
         self.window_fallbacks = 0  # searches re-run on the full grid (see least_cost_path)
         self.tree_hits = 0         # requests answered from a precomputed substation tree
-        self.trees = self._substation_trees() if precompute else {}
+        self.precompute = precompute
+        # search grids + substation trees per preset; non-balanced ones are built on first use
+        self.trees = {"balanced": self._substation_trees(self.g) if precompute else {}}
+        self._search = {"balanced": self.g}
 
-    def _substation_trees(self):
+    def _search_grid(self, preset):
+        if preset not in C.PRESETS:
+            raise RouteError(f"unknown preset '{preset}' (expected one of {', '.join(C.PRESETS)})")
+        if preset not in self._search:
+            g = build_cost_grids(corridor_override=self.g.corridor, overrides=C.PRESETS[preset]["overrides"])
+            self.trees[preset] = self._substation_trees(g) if self.precompute else {}
+            self._search[preset] = g  # set last: a concurrent caller that sees the grid also sees its trees
+        return self._search[preset]
+
+    def _substation_trees(self, g):
         """One single-source least-cost tree per known substation (full-grid Dijkstra, ~0.1 s each).
         Every gen-tie ends at a substation, so most requests become a traceback instead of a search."""
         path = C.OVERLAY_DIR / "substations.geojson"
@@ -98,7 +110,7 @@ class Router:
             if not (w <= lon <= e and s <= lat <= n):
                 continue
             rc = self.xy_to_rc(*self.lonlat_to_xy(lon, lat))
-            mcp = MCP_Geometric(self.g.routing, fully_connected=True)
+            mcp = MCP_Geometric(g.routing, fully_connected=True)
             mcp.find_costs([rc])
             trees[rc] = mcp
         return trees
@@ -137,21 +149,23 @@ class Router:
                 "geometry": {"type": "LineString", "coordinates": [[float(a), float(b)] for a, b in zip(lon, lat)]}}
 
     # ------------------------------------------------------------------ route
-    def route(self, start, end):
+    def route(self, start, end, preset="balanced"):
+        """Search (path + OH/UG mode per cell) on the preset's grid; price everything on the balanced grid."""
         t0 = time.perf_counter()
+        sg = self._search_grid(preset)
         (sx, sy), s_rc = self._validate(start, "start")
         (ex, ey), e_rc = self._validate(end, "end")
         if s_rc == e_rc:
             raise RouteError("start and end fall in the same grid cell")
 
-        path = self.straighten(self.least_cost_path(s_rc, e_rc))
+        path = self.straighten(self.least_cost_path(s_rc, e_rc, preset=preset), sg.routing)
         rows, cols = path[:, 0], path[:, 1]
 
         # length represented by each path cell = half of its in-step + half of its out-step
         step = np.hypot(*np.diff(path, axis=0).T) * self.cs
         cell_len = np.r_[step, 0] / 2 + np.r_[0, step] / 2
 
-        modes = smooth_modes(self.g.mode[rows, cols].astype(np.int8), cell_len, C.MIN_SEGMENT_M)
+        modes = smooth_modes(sg.mode[rows, cols].astype(np.int8), cell_len, C.MIN_SEGMENT_M)
         cost_by_mode = np.where(modes == UNDERGROUND, self.g.underground[rows, cols], self.g.overhead[rows, cols])
         fire = self.g.fire[rows, cols]
         risk = self.g.fire_risk[rows, cols]
@@ -261,6 +275,7 @@ class Router:
         props = {
             "schema_version": SCHEMA_VERSION,
             "start": [float(start[0]), float(start[1])], "end": [float(end[0]), float(end[1])],
+            "preset": preset,
             "total_km": round(totals["total_km"], 3),
             "total_cost_usd": round(float(total_cost)),
             "overhead_km": round(totals["overhead_km"], 3),
@@ -290,7 +305,7 @@ class Router:
         return {"type": "FeatureCollection", "properties": props, "features": features}
 
     # ------------------------------------------------------------------ search
-    def least_cost_path(self, s_rc, e_rc, window=True, use_trees=True):
+    def least_cost_path(self, s_rc, e_rc, window=True, use_trees=True, preset="balanced"):
         """Least-cost path from s_rc to e_rc (grid cells).
 
         1. an endpoint is a known substation -> traceback in its precomputed tree (~ms)
@@ -298,12 +313,14 @@ class Router:
            whole 31 x 30 km grid); if the path touches the window edge the window may have
            constrained it, so re-run on the full grid.
         Move costs are symmetric, so a tree rooted at either end gives the same optimal cost."""
-        if use_trees and e_rc in self.trees:
+        self._search_grid(preset)  # validates + builds on first use (direct callers skip route())
+        trees = self.trees[preset]
+        if use_trees and e_rc in trees:
             self.tree_hits += 1
-            return np.asarray(self.trees[e_rc].traceback(s_rc))[::-1]
-        if use_trees and s_rc in self.trees:
+            return np.asarray(trees[e_rc].traceback(s_rc))[::-1]
+        if use_trees and s_rc in trees:
             self.tree_hits += 1
-            return np.asarray(self.trees[s_rc].traceback(e_rc))
+            return np.asarray(trees[s_rc].traceback(e_rc))
         if window:
             margin = int(max(C.WINDOW_MIN_MARGIN_M / self.cs,
                              C.WINDOW_MARGIN_FRAC * np.hypot(s_rc[0] - e_rc[0], s_rc[1] - e_rc[1])))
@@ -311,7 +328,7 @@ class Router:
             c0, c1 = max(min(s_rc[1], e_rc[1]) - margin, 0), min(max(s_rc[1], e_rc[1]) + margin + 1, self.ncols)
         else:
             r0, r1, c0, c1 = 0, self.nrows, 0, self.ncols
-        sub = self.g.routing[r0:r1, c0:c1]
+        sub = self._search[preset].routing[r0:r1, c0:c1]
         path, _ = route_through_array(sub, (s_rc[0] - r0, s_rc[1] - c0), (e_rc[0] - r0, e_rc[1] - c0),
                                       fully_connected=True, geometric=True)
         path = np.asarray(path) + [r0, c0]
@@ -319,18 +336,18 @@ class Router:
                         (c0 > 0 and (path[:, 1] == c0).any()) or (c1 < self.ncols and (path[:, 1] == c1 - 1).any()))
         if window and touches_edge:
             self.window_fallbacks += 1
-            return self.least_cost_path(s_rc, e_rc, window=False, use_trees=False)
+            return self.least_cost_path(s_rc, e_rc, window=False, use_trees=False, preset=preset)
         return path
 
     # ------------------------------------------------------------------ straighten
-    def straighten(self, path):
+    def straighten(self, path, cost=None):
         """String-pulling: replace grid zig-zags with straight spans wherever a straight span
         costs no more than the path it replaces (within STRAIGHTEN_TOL).
 
         8-connected least-cost paths are non-unique on near-uniform cost and tend to dog-leg
         (go diagonal, then straight) - up to ~1 km off the true shortest line over 10 km.
         """
-        cost = self.g.routing
+        cost = self.g.routing if cost is None else cost
         step = np.hypot(*np.diff(path, axis=0).T) * self.cs
         c = cost[path[:, 0], path[:, 1]]
         cum = np.r_[0, np.cumsum((c[:-1] + c[1:]) / 2 * step)]  # cost along the path up to vertex k
