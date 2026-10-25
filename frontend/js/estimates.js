@@ -42,7 +42,8 @@ const addDays = (s, d) => iso(Date.parse(s) + Math.round(d) * DAY);
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 const sumVals = (o) => Object.values(o).reduce((a, b) => a + b, 0);
 
-export function estimate(props = {}, project = {}) {
+// opts.procureWeeks: simulated materials-arrival time (route page), replaces the placeholder procurement duration.
+export function estimate(props = {}, project = {}, opts = {}) {
   // Backend hook: same object back (identity kept), flagged as real.
   if (props.estimates) return Object.assign(props.estimates, { is_placeholder: false });
 
@@ -79,6 +80,8 @@ export function estimate(props = {}, project = {}) {
     fire_vegetation: fireKm * RATES.maint_fire_km * vScale * wx,
   };
   const maintenance_per_year = sumVals(maintenance_breakdown);
+  // the same upkeep without the weather multiplier
+  const maintenance_flat_per_year = maintenance_per_year - (sumVals(maintenance_breakdown) - ugKm * RATES.maint_ug_km * vScale) * (1 - 1 / wx);
 
   const permits = (props.permitting_triggers || []).map(({ code, reason }) => {
     const [months_min, months_max] = PERMIT_MONTHS[code] || DEFAULT_PERMIT_MONTHS;
@@ -92,7 +95,7 @@ export function estimate(props = {}, project = {}) {
     { item: "Substation terminal equipment", weeks: Math.round(40 * vScale) },
   ];
   if (ugKm > 0) lead_times.push({ item: "Underground cable", weeks: 52 });
-  const procureWeeks = Math.max(...lead_times.map((l) => l.weeks));
+  const procureWeeks = opts.procureWeeks ?? Math.max(...lead_times.map((l) => l.weeks));
 
   const durations = [
     ["Studies & siting", RATES.studies_weeks * 7],
@@ -127,6 +130,7 @@ export function estimate(props = {}, project = {}) {
     upfront_total: total,
     upfront_breakdown,
     maintenance_per_year,
+    maintenance_flat_per_year,
     maintenance_breakdown,
     weather_maint: wm || null,
     lifetime_cost_40yr: total + maintenance_per_year * RATES.years,

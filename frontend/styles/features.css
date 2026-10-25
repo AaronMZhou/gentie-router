@@ -196,3 +196,15 @@ button.rm { flex: none; margin-top: 6px; padding: 2px 8px; font-size: 11px; }
 #supply input[type=range] { width: 100%; accent-color: var(--acc); height: 28px; margin: 0; }
 .ticks { display: flex; justify-content: space-between; font: 500 10px var(--font-mono); color: var(--muted); letter-spacing: .08em; }
 @media (max-width: 560px) { .b-row { grid-template-columns: 1fr; } .seg:not(.two) { grid-auto-flow: row; } }
+
+/* cost summary ledger */
+.ledger { width: 100%; border-collapse: collapse; font-size: 14px; margin: 4px 0 14px; }
+.ledger td { padding: 9px 0; border-bottom: 1px solid var(--line); vertical-align: baseline; }
+.ledger td:last-child { text-align: right; font: 500 13px var(--font-mono); white-space: nowrap; padding-left: 16px; }
+.ledger .sub td:first-child { padding-left: 22px; color: var(--muted); font-size: 13px; }
+.ledger .sub2 td:first-child { padding-left: 44px; color: var(--muted); font-size: 12.5px; }
+.ledger .sub td:last-child, .ledger .sub2 td:last-child { color: var(--muted); }
+.ledger .head td { padding-top: 20px; border-bottom: 1px solid var(--line2); font: 500 11px var(--font-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.ledger .tot td { border-top: 1px solid var(--line2); border-bottom: 0; padding-top: 14px; font: 400 26px/1.2 var(--font-display); }
+.ledger .tot td:last-child { font: 400 30px/1.2 var(--font-display); }
+.ledger .adj td:last-child { color: var(--acc2); }

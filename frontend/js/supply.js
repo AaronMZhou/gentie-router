@@ -50,8 +50,11 @@ export function initSupply(route, { demo }) {
   const sum = $("invSummary"), list = $("invList");
 
   async function refresh() {
-    document.dispatchEvent(new CustomEvent("gentie:supply", { detail: { delta: 0, market: "current" } }));
-    if (demo) { sum.textContent = "The supplier simulation needs the backend (not available in demo mode)."; return; }
+    if (demo) {
+      sum.textContent = "The supplier simulation needs the backend (not available in demo mode).";
+      document.dispatchEvent(new CustomEvent("gentie:supply", { detail: { none: true } }));
+      return;
+    }
     const mine = ++seq;
     sum.textContent = "Checking supplier availability…";
     list.innerHTML = "";
@@ -63,7 +66,10 @@ export function initSupply(route, { demo }) {
       });
       if (mine === seq) render(r); // ignore answers superseded by a newer request
     } catch (err) {
-      if (mine === seq) sum.textContent = `Inventory check failed: ${err.detail || err.message}`;
+      if (mine === seq) {
+        sum.textContent = `Inventory check failed: ${err.detail || err.message}`;
+        document.dispatchEvent(new CustomEvent("gentie:supply", { detail: { none: true } }));
+      }
     }
   }
 
@@ -80,7 +86,7 @@ export function initSupply(route, { demo }) {
     const delta = s.market_cost_delta_usd;
     parts.push(delta ? `<b>${delta > 0 ? "+" : "−"}${fmtUsd(Math.abs(delta))}</b> on the route's upfront cost from the ${esc(r.params.market_label.split(" ")[0].toLowerCase())} market (the route cost assumes current prices).`
       : "No change to the route's upfront cost: the route cost already assumes current-market prices.");
-    document.dispatchEvent(new CustomEvent("gentie:supply", { detail: { delta, market: r.params.market } }));
+    document.dispatchEvent(new CustomEvent("gentie:supply", { detail: { delta, market: r.params.market, label: r.params.market_label, summary: s, lines: r.lines, params: r.params } }));
     sum.innerHTML = parts.join("<br>");
     const byId = Object.fromEntries(r.lines.map((l) => [l.id, l]));
     const bidsUrl = (l) => "suppliers.html?" + new URLSearchParams({

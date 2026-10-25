@@ -1,6 +1,6 @@
 import { initThemeToggle } from "../theme.js";
 import { getRoute, getProject, updateProject, getAssumptions } from "../api.js";
-import { estimate } from "../estimates.js";
+import { estimate, RATES } from "../estimates.js";
 import { renderResults, fmtUsd, fmtKm } from "../panel.js";
 import { createMap } from "../map.js";
 import { supplyCell, initSupply } from "../supply.js";
@@ -64,6 +64,29 @@ const MAINT_LABELS = {
   structures: "Structures", fire_vegetation: "Fire & vegetation mgmt",
 };
 
+// Deployment calendar bars: whole years, labels evenly spaced so they line up with year boundaries.
+function ganttHtml(est) {
+  const cal = est.calendar || [];
+  const first = cal[0]?.start ?? new Date().toISOString().slice(0, 10), last = cal.at(-1)?.end ?? first;
+  const y0 = Number(first.slice(0, 4)), yEnd = Number(last.slice(0, 4)) + 1;
+  const step = Math.ceil((yEnd - y0) / 6);
+  const yN = y0 + Math.ceil((yEnd - y0) / step) * step;
+  const T0 = Date.UTC(y0, 0, 1), span = Date.UTC(yN, 0, 1) - T0;
+  const pct = (iso) => ((Date.parse(iso) - T0) / span) * 100;
+  const years = [];
+  for (let yr = y0; yr <= yN; yr += step) years.push(`<span>${yr}</span>`);
+  const barCls = (phase) => /permit/i.test(phase) ? "o" : /construct|energiz/i.test(phase) ? "g" : "";
+  return `<span></span><div class="years mono-label">${years.join("")}</div>
+    ${cal.map((c) => `<span>${esc(c.phase)}</span><div class="track" title="${c.start} → ${c.end}"><i class="${barCls(c.phase)}" style="left:${pct(c.start).toFixed(1)}%;width:${Math.max(0.8, pct(c.end) - pct(c.start)).toFixed(1)}%"></i></div>`).join("")}`;
+}
+
+function logisticsPlaceholder(leads, mk) {
+  return `<table class="inv" style="max-width:560px">
+    ${leads.map((l) => `<tr><td>${esc(l.item)}</td><td>${l.weeks} wks${mk("Placeholder lead time")}</td></tr>`).join("")}
+  </table>
+  ${leads.length ? `<div class="risk" style="margin-top:14px">▲ ${esc(leads[0].item)} sets the critical path at ${leads[0].weeks} wks${mk("Placeholder lead time")}</div>` : ""}`;
+}
+
 function page({ fc, route, project, demo }, est) {
   const p = fc.properties;
   const mk = (title = "Placeholder estimate, not a real model") => est.is_placeholder ? `<span class="est" title="${esc(title)}">est.</span>` : "";
@@ -98,17 +121,6 @@ function page({ fc, route, project, demo }, est) {
   const spark = `M0 ${y(est.upfront_total).toFixed(1)} L300 ${y(est.lifetime_cost_40yr).toFixed(1)}`;
   const maintRows = Object.entries(est.maintenance_breakdown).filter(([, v]) => v > 0);
 
-  // calendar: whole years, labels evenly spaced so they line up with year boundaries
-  const cal = est.calendar || [];
-  const first = cal[0]?.start ?? new Date().toISOString().slice(0, 10), last = cal.at(-1)?.end ?? first;
-  const y0 = Number(first.slice(0, 4)), yEnd = Number(last.slice(0, 4)) + 1;
-  const step = Math.ceil((yEnd - y0) / 6);
-  const yN = y0 + Math.ceil((yEnd - y0) / step) * step;
-  const T0 = Date.UTC(y0, 0, 1), span = Date.UTC(yN, 0, 1) - T0;
-  const pct = (iso) => ((Date.parse(iso) - T0) / span) * 100;
-  const years = [];
-  for (let yr = y0; yr <= yN; yr += step) years.push(`<span>${yr}</span>`);
-  const barCls = (phase) => /permit/i.test(phase) ? "o" : /construct|energiz/i.test(phase) ? "g" : "";
 
   // permits: real triggers + est. durations; tribal/protected shown as "not triggered" when absent
   const trig = new Set(est.permits.map((x) => x.code));
@@ -131,11 +143,11 @@ function page({ fc, route, project, demo }, est) {
     <div class="figs">
       <div><div class="mono-label">Upfront</div><div class="display" id="upfrontFig">${money(p.total_cost_usd)}</div></div>
       <div><div class="mono-label">40-yr total</div><div class="display"><span id="lifeFig">${money(est.lifetime_cost_40yr)}</span>${mk("Placeholder: upfront + 40 yr of placeholder upkeep, undiscounted")}</div></div>
-      <div><div class="mono-label">Energize</div><div class="display it acc2">${quarter(est.energize_date)}${mk("Placeholder: end of the placeholder deployment calendar")}</div></div>
+      <div><div class="mono-label">Energize</div><div class="display it acc2"><span id="energizeFig">${quarter(est.energize_date)}</span><span id="energizeTag">${mk("Placeholder: end of the placeholder deployment calendar")}</span></div></div>
     </div>
   </div>
   <nav class="tabs tabs--sticky" aria-label="Route sections">
-    <a href="#overview" class="is-active" aria-current="true">Overview</a><a href="#costs">Costs</a><a href="#inventory">Inventory</a>
+    <a href="#overview" class="is-active" aria-current="true">Overview</a><a href="#costs">Costs</a><a href="#summary">Cost summary</a><a href="#inventory">Inventory</a>
     <a href="#maintenance">Maintenance</a><a href="#calendar">Calendar</a><a href="#permits">Permits &amp; legal</a><a href="#logistics">Logistics</a><a href="#supply">Supply chain</a><a href="#weather">Weather</a><a href="#analysis">Route analysis</a>
   </nav>
   <section class="three grid-bg sect" id="overview" aria-label="3D route view">
@@ -179,7 +191,10 @@ function page({ fc, route, project, demo }, est) {
       <h6>Where the <span class="it">${money(p.total_cost_usd)}</span> goes</h6>
       <div class="donut" style="${donutStyle}" role="img" aria-label="${esc(donutLabel)}"></div>
       <div class="lg">${slices.map(([k, v], i) => `<span><span><i style="background:var(--series-${i + 1})"></i>${esc(k)}</span>${money(v)}${mk()}</span>`).join("")}</div>
-      <p class="muted" id="supplyAdj" style="font-size:12px;margin-top:12px" hidden></p>
+    </div>
+    <div class="cell sect" id="summary" style="grid-column:span 12"><div class="mono-label">Cost summary</div>
+      <h6>Every <span class="it">cost</span>, itemised</h6>
+      <div id="ledger"><p class="muted">Loading supplier prices…</p></div>
     </div>
     <div class="cell sect" id="inventory" style="grid-column:span 4"><div class="mono-label">Inventory</div>
       <h6>Bill of <span class="it">materials</span></h6>
@@ -195,24 +210,18 @@ function page({ fc, route, project, demo }, est) {
       <table class="inv">${maintRows.map(([k, v]) => `<tr><td>${MAINT_LABELS[k] || esc(k)}</td><td>${fmtUsd(v)}/yr${mk()}</td></tr>`).join("")}</table>
       ${weatherNote(est.weather_maint)}
     </div>
-    <div class="cell sect" id="calendar" style="grid-column:span 7"><div class="mono-label">Deployment calendar ${mk("Placeholder durations, driven by the real permit triggers")}</div>
-      <h6>Energized by <span class="it acc2">${quarter(est.energize_date)}</span></h6>
-      <div class="gantt">
-        <span></span><div class="years mono-label">${years.join("")}</div>
-        ${cal.map((c) => `<span>${esc(c.phase)}</span><div class="track" title="${c.start} → ${c.end}"><i class="${barCls(c.phase)}" style="left:${pct(c.start).toFixed(1)}%;width:${Math.max(0.8, pct(c.end) - pct(c.start)).toFixed(1)}%"></i></div>`).join("")}
-      </div>
+    <div class="cell sect" id="calendar" style="grid-column:span 7"><div class="mono-label">Deployment calendar <span id="calTag">${mk("Placeholder durations, driven by the real permit triggers")}</span></div>
+      <h6>Energized by <span class="it acc2" id="energizeBy">${quarter(est.energize_date)}</span></h6>
+      <div class="gantt" id="gantt">${ganttHtml(est)}</div>
       <p class="muted" style="font-size:12px;margin-top:12px">Starts ${demo || !project.filing_target ? "today" : `at the filing target, ${esc(project.filing_target)}`}.</p>
     </div>
     <div class="cell sect" id="permits" style="grid-column:span 5"><div class="mono-label">Permits &amp; legal</div>
       <h6>${est.permits.length} <span class="it">trigger${est.permits.length === 1 ? "" : "s"}</span></h6>
       ${permitRows.join("")}
     </div>
-    <div class="cell sect" id="logistics" style="grid-column:span 12"><div class="mono-label">Logistics ${mk("Placeholder lead times")}</div>
+    <div class="cell sect" id="logistics" style="grid-column:span 12"><div class="mono-label">Logistics <span id="logTag">${mk("Placeholder lead times")}</span></div>
       <h6>Procurement <span class="it">lead times</span></h6>
-      <table class="inv" style="max-width:560px">
-        ${leads.map((l) => `<tr><td>${esc(l.item)}</td><td>${l.weeks} wks${mk("Placeholder lead time")}</td></tr>`).join("")}
-      </table>
-      ${leads.length ? `<div class="risk" style="margin-top:14px">▲ ${esc(leads[0].item)} sets the critical path at ${leads[0].weeks} wks${mk("Placeholder lead time")}</div>` : ""}
+      <div id="logBody">${logisticsPlaceholder(leads, mk)}</div>
     </div>
     ${supplyCell(Number(project.voltage_kv))}
     ${weatherCell()}
@@ -228,16 +237,78 @@ function weatherNote(wm) {
     <span class="muted" style="display:block;font-size:12px;margin-top:4px">${esc(wm.source)}, ${esc(wm.years)}, ${wm.points} points. Underground cable is not adjusted. Weights are placeholders.</span></p>`;
 }
 
-// Supply-market effect on the upfront cost: the route cost assumes current prices, so only the difference counts.
-function wireSupplyAdjustment(data, est) {
+// ------------------------------------------------------------------ supply simulation -> costs, schedule
+// The router's cost assumes current-market material prices, so the market setting adds only the difference.
+const M1 = (usd, d = 1) => `$${(usd / 1e6).toFixed(d)}M`;
+const sgn = (x) => (x > 0 ? "+" : x < 0 ? "\u2212" : "");
+const sim = `<span class="est" title="Simulated suppliers, placeholder prices and lead times">sim.</span>`;
+
+function ledgerHtml(data, est, sup) {
+  const base = data.fc.properties.total_cost_usd, yrs = RATES.years, wm = est.weather_maint;
+  const row = (cls, label, val) => `<tr class="${cls}"><td>${label}</td><td>${val}</td></tr>`;
+  const flat = est.maintenance_flat_per_year, wx = est.maintenance_per_year - flat;
+  let delta = 0, build, proc = "";
+  if (!sup || sup.none) {
+    build = row("sub", `Materials at current-market prices ${sim}`, `<span class="muted">needs the backend</span>`);
+  } else {
+    const s = sup.summary;
+    delta = s.market_cost_delta_usd || 0;
+    const ratio = s.est_material_cost_usd ? (s.est_material_cost_usd - delta) / s.est_material_cost_usd : 1; // selected market -> current prices
+    const cat = {};
+    for (const l of sup.lines) cat[l.category] = (cat[l.category] || 0) + l.est_cost_usd * ratio;
+    const mat = Object.values(cat).reduce((a, b) => a + b, 0), cable = cat.underground || 0, equip = cat.terminals || 0;
+    build = row("sub", `Materials at current-market prices ${sim}`, M1(mat)) +
+      row("sub2", "HV cable, joints and duct", M1(cable)) + row("sub2", "Substation and terminal equipment", M1(equip)) +
+      row("sub2", "Structures, conductor and other", M1(mat - cable - equip)) +
+      row("sub", "Construction, right-of-way, permitting, fire mitigation", M1(Math.max(0, base - mat))) +
+      (mat > base ? `<tr class="sub"><td colspan="2" class="muted">Catalog materials exceed the router's baseline for this route; treat the split as indicative.</td></tr>` : "");
+    const w = s.earliest_construction_start_weeks, top = s.critical_path_drivers[0];
+    proc = `<p class="hint" style="margin:0">Procurement: ${w.p50 == null ? "no qualified supplier for some items, so there is no arrival estimate" :
+      `the materials allow construction to start around week ${Math.round(w.p50)} (week ${Math.round(w.p90)} if things go slowly)${top ? `, held up mostly by ${esc(top.name)}` : ""}`}.
+      Construction is planned to start in week ${sup.params.need_by_weeks}.</p>`;
+  }
+  const up = base + delta, upkeep = est.maintenance_per_year * yrs;
+  return `<table class="ledger"><tbody>
+    <tr class="head"><td>Upfront build</td><td></td></tr>
+    ${row("", "Baseline route cost (router model)", M1(base))}
+    ${build}
+    ${row("adj", `Supply market adjustment (${esc(sup?.label?.split(" ")[0] || "Current")})`, delta ? sgn(delta) + M1(Math.abs(delta)) : "$0.0M")}
+    ${row("", "<b>Upfront total</b>", `<b>${M1(up)}</b>`)}
+    <tr class="head"><td>Upkeep, ${yrs} years</td><td></td></tr>
+    ${row("", `Flat upkeep ${fmtUsd(flat)}/yr <span class="est">est.</span>`, M1(flat * yrs, 2))}
+    ${wm ? row("adj", `Weather adjustment \u00d7${wm.multiplier.toFixed(2)} (+${fmtUsd(wx)}/yr) <span class="est">est.</span>`, `+${M1(wx * yrs, 2)}`)
+         : row("", "Weather adjustment (no weather history for this route yet)", "\u2013")}
+    ${row("", "<b>Upkeep total</b>", `<b>${M1(upkeep, 2)}</b>`)}
+    <tr class="tot"><td>${yrs}-year total</td><td>${M1(up + upkeep)}</td></tr>
+  </tbody></table>${proc}`;
+}
+
+// Simulated arrival times replace the placeholder lead times and the calendar's procurement phase.
+function simulatedSchedule(data, sup) {
+  const s = sup.summary, w = s.earliest_construction_start_weeks.p50, props = data.fc.properties;
+  const lines = [...sup.lines].filter((l) => l.eta_weeks.p50 != null).sort((a, b) => b.eta_weeks.p50 - a.eta_weeks.p50).slice(0, 6);
+  const top = s.critical_path_drivers[0], topLine = top && sup.lines.find((l) => l.id === top.id);
+  $("logTag").innerHTML = sim;
+  $("logBody").innerHTML = `<table class="inv" style="max-width:560px">${lines.map((l) =>
+    `<tr><td>${esc(l.name)}${l.long_lead ? ' <span class="est">long-lead</span>' : ""}</td><td>${Math.round(l.eta_weeks.p50)}\u2013${Math.round(l.eta_weeks.p90)} wks</td></tr>`).join("")}</table>
+    ${top ? `<div class="risk" style="margin-top:14px">\u25b2 ${esc(top.name)} sets the schedule${topLine?.eta_weeks.p50 != null ? `, arriving in ${Math.round(topLine.eta_weeks.p50)}\u2013${Math.round(topLine.eta_weeks.p90)} wks` : ""}</div>` : ""}`;
+  if (w == null) return;
+  const est2 = estimate(props, data.project, { procureWeeks: Math.ceil(w) });
+  $("gantt").innerHTML = ganttHtml(est2);
+  $("energizeBy").textContent = $("energizeFig").textContent = quarter(est2.energize_date);
+  $("calTag").innerHTML = $("energizeTag").innerHTML = sim;
+}
+
+function wireSupply(data, est) {
   const base = data.fc.properties.total_cost_usd;
+  const render = (sup) => { $("ledger").innerHTML = ledgerHtml(data, est, sup); };
+  render(null);
   document.addEventListener("gentie:supply", (e) => {
-    const d = (data.supplyAdj = e.detail.delta || 0);
+    const sup = e.detail, d = (data.supplyAdj = sup.delta || 0);
     $("upfrontFig").textContent = money(base + d);
     $("lifeFig").textContent = money(est.lifetime_cost_40yr + d);
-    const note = $("supplyAdj");
-    note.hidden = !d;
-    note.innerHTML = d ? `<b>Supply market (${esc(e.detail.market)}): ${d > 0 ? "+" : "−"}${money(Math.abs(d))}</b> included in the upfront and 40-yr figures above. Change it in Supply chain.` : "";
+    render(sup);
+    if (!sup.none) simulatedSchedule(data, sup);
   });
 }
 
@@ -448,7 +519,7 @@ async function boot() {
   renderResults($("analysis"), data.fc.properties, data.fc.features, { isDemo: data.demo });
   $("assumptions").textContent = await assumptionsNote(data.demo);
   wireActions(data, est);
-  wireSupplyAdjustment(data, est);
+  wireSupply(data, est);
   wireTabs();
   const map = await initMap(data);
   initSupply({ start: data.fc.properties.start, end: data.fc.properties.end, preset: data.route.preset }, { demo: data.demo });
