@@ -544,7 +544,7 @@ Code that sets `data-theme` itself must then fire
 ## 10. Smoke test
 
 ```
-python tools/smoke_pages.py /styles/preview.html /dashboard.html      # uvicorn on :8767, temp DB, no seed
+python tools/smoke_pages.py /styles/preview.html /dashboard.html      # uvicorn on :8767, temp DB, seeded (--no-seed: empty)
 python tools/smoke_pages.py "/route.html?demo=1" --no-server          # static files only, no API
 python tools/smoke_pages.py /styles/preview.html --eval 'document.querySelectorAll(".pcard").length > 0'
 ```

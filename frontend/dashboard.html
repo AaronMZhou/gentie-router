@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Projects · Gen-tie Router</title>
+  <link rel="icon" href="data:,">
+  <script>
+    (function () {
+      var d = document.documentElement, t;
+      try { t = localStorage.getItem("gentie.theme"); } catch (e) {}
+      if (t !== "dark" && t !== "light") t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      d.dataset.theme = t;
+      window.addEventListener("error", function (e) { d.dataset.errors = (d.dataset.errors || "") + e.message + "|"; });
+      window.addEventListener("unhandledrejection", function (e) { d.dataset.errors = (d.dataset.errors || "") + (e.reason && e.reason.message || String(e.reason)) + "|"; });
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500&family=Geist:wght@300;400;500&display=swap">
+  <link rel="stylesheet" href="styles/tokens.css">
+  <link rel="stylesheet" href="styles/components.css">
+</head>
+<body>
+  <div class="dash">
+    <aside class="side">
+      <a class="logo" href="landing.html" style="margin-bottom:26px"><i></i>Gen-tie Router</a>
+      <a class="is-active" href="dashboard.html" aria-current="page">Projects <span class="mono-label" id="nav-projects"></span></a>
+      <a>Routes <span class="mono-label" id="nav-routes"></span></a>
+      <a>Permits</a><a>Inventory</a><a>Reports</a>
+      <div style="flex:1"></div>
+      <button class="theme-toggle" type="button"></button>
+    </aside>
+    <main class="main">
+      <div class="h-row">
+        <div><div class="mono-label" id="portfolio-label">Portfolio</div><h1 class="display display--1" id="greeting">Good <span class="it acc">evening.</span></h1></div>
+        <button class="btn btn--fill" type="button" id="new-project">+ New project</button>
+      </div>
+      <div class="kpis">
+        <div><div class="mono-label">Active projects</div><div class="n" id="kpi-projects">—</div></div>
+        <div><div class="mono-label">Routes in study</div><div class="n" id="kpi-routes">—</div></div>
+        <div><div class="mono-label">Portfolio capex</div><div class="n" id="kpi-capex">—</div></div>
+        <div><div class="mono-label">Next filing</div><div class="n it acc2" id="kpi-filing">—</div></div>
+      </div>
+      <div id="projects" aria-live="polite"></div>
+    </main>
+  </div>
+
+  <dialog class="modal" id="new-project-modal" aria-labelledby="np-title">
+    <form>
+      <div class="mono-label">New project</div>
+      <h3 class="display display--3" id="np-title">Name your <span class="it">line</span></h3>
+      <label class="field"><span class="mono-label">Name</span><input name="name" required autocomplete="off"></label>
+      <label class="field"><span class="mono-label">Voltage</span><select name="voltage_kv"><option value="69">69 kV</option><option value="138" selected>138 kV</option><option value="230">230 kV</option></select></label>
+      <label class="field"><span class="mono-label">Phase</span><select name="phase"><option value="drafting" selected>Drafting</option><option value="comparing">Comparing</option><option value="permit-risk">Permit risk</option><option value="ready">Ready to file</option></select></label>
+      <label class="field"><span class="mono-label">Filing target (optional)</span><input name="filing_target" type="date"></label>
+      <div class="actions"><button class="btn" type="button" id="np-cancel">Cancel</button><button class="btn btn--fill" type="submit">Create</button></div>
+    </form>
+    <!-- inside the dialog so it renders in the top layer, above the backdrop -->
+    <div class="toast toast--error" role="alert" hidden></div>
+  </dialog>
+
+  <script type="module" src="js/pages/dashboard.js"></script>
+</body>
+</html>

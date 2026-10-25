@@ -48,6 +48,7 @@ img, svg { display: block; max-width: 100%; }
   display: flex; justify-content: space-between; align-items: center; }
 .side a:hover { color: var(--text); }
 .side a.is-active { background: var(--surf); color: var(--text); border-color: var(--line); }
+.side a.logo { padding: 0; font-size: 24px; color: var(--text); justify-content: flex-start; } /* .side a would otherwise win */
 
 .tabs { display: flex; border-bottom: 1px solid var(--line); padding: 0 28px; overflow-x: auto; }
 .tabs > a, .tabs > button { padding: 16px 18px; font-family: var(--font-mono); font-size: var(--fs-mono); letter-spacing: var(--track-mono);
