@@ -136,6 +136,19 @@
       </div>
     </div>
 
+    <div class="demo"><span class="mono-label">Map toolbar, card actions, preset choice</span>
+      <div class="mapwrap grid-bg" style="height:300px">
+        <details class="hud maptools" open><summary class="mono-label">Layers · view</summary>
+          <div class="grp"><div class="row"><button class="btn btn--sm" type="button">Top</button><button class="btn btn--sm" type="button" aria-pressed="true">Enhanced</button></div></div>
+          <div class="grp"><label class="chk"><input type="checkbox" checked> Existing power lines</label><label class="chk"><input type="checkbox"> Protected land</label></div>
+        </details>
+        <div class="map-toast info">Please click inside the study region.</div>
+      </div>
+      <div class="rail-head" style="margin-top:var(--s-4)"><div class="mono-label">3 routes · sorted by score</div><button class="btn btn--sm" type="button">Change endpoints</button></div>
+      <div class="acts" style="display:flex;gap:8px;margin:var(--s-3) 0"><a class="btn btn--sm" href="#">Open →</a><button class="btn btn--sm" type="button">Rename</button><button class="btn btn--sm" type="button">Delete</button></div>
+      <button class="choice" type="button"><b>Avoid fire</b><span class="muted">Weights overhead line in high wildfire hazard much more heavily.</span></button>
+    </div>
+
     <div class="demo"><span class="mono-label">Bento: donut, inventory, Gantt, permits</span>
       <div class="bento">
         <div class="cell" style="grid-column:span 6"><div class="mono-label">Upfront cost</div><h6>Where the <span class="it">$386M</span> goes</h6>

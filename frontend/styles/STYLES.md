@@ -346,6 +346,21 @@ Only one card is `.is-selected`; it matches the route drawn in `--route-1` with 
 `.hud` is absolutely positioned; place it with inline `left/right/top/bottom`. `.hud--glass` blurs
 what's behind it.
 
+### Map toolbar (`.maptools`), card actions, preset choices, map.js HUDs
+
+```html
+<details class="hud maptools" open>
+  <summary class="mono-label">Layers · view</summary>
+  <div class="grp"><div class="row"><button class="btn btn--sm" aria-pressed="true">Enhanced</button></div></div>
+  <div class="grp"><label class="chk"><input type="checkbox" checked> Existing power lines</label></div>
+</details>
+<div class="rcard"> … <div class="acts"><a class="btn btn--sm" href="route.html?id=1">Open →</a><button class="btn btn--sm">Rename</button></div></div>
+<div class="rail-head"><div class="mono-label">3 routes</div><button class="btn btn--sm">Change endpoints</button></div>
+<button class="choice" type="button"><b>Avoid fire</b><span class="muted">Weights overhead line in high hazard…</span></button>
+```
+`.maptools` sits top right (bottom right below 900 px) and shrinks to its summary when closed.
+`[aria-pressed="true"]` inside it marks the active view.
+
 ### Tabs (`.tabs`)
 
 ```html
