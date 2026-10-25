@@ -187,10 +187,10 @@ function page({ fc, route, project, demo }, est) {
   </section>
 
   <div class="bento">
-    <div class="cell sect" id="costs" style="grid-column:span 4"><div class="mono-label">Upfront cost ${mk("Category split is a placeholder; the total is the real model cost")}</div>
-      <h6>Where the <span class="it">${money(p.total_cost_usd)}</span> goes</h6>
-      <div class="donut" style="${donutStyle}" role="img" aria-label="${esc(donutLabel)}"></div>
-      <div class="lg">${slices.map(([k, v], i) => `<span><span><i style="background:var(--series-${i + 1})"></i>${esc(k)}</span>${money(v)}${mk()}</span>`).join("")}</div>
+    <div class="cell sect" id="costs" style="grid-column:span 4"><div class="mono-label">Upfront cost <span id="costTag">${mk("Category split is a placeholder; the total is the real model cost")}</span></div>
+      <h6 id="costTitle">Where the <span class="it">${money(p.total_cost_usd)}</span> goes</h6>
+      <div class="donut" id="donut" style="${donutStyle}" role="img" aria-label="${esc(donutLabel)}"></div>
+      <div class="lg" id="costLg">${slices.map(([k, v], i) => `<span><span><i style="background:var(--series-${i + 1})"></i>${esc(k)}</span>${money(v)}${mk()}</span>`).join("")}</div>
     </div>
     <div class="cell sect" id="summary" style="grid-column:span 12"><div class="mono-label">Cost summary</div>
       <h6>Every <span class="it">cost</span>, itemised</h6>
@@ -241,28 +241,36 @@ function weatherNote(wm) {
 // The router's cost assumes current-market material prices, so the market setting adds only the difference.
 const M1 = (usd, d = 1) => `$${(usd / 1e6).toFixed(d)}M`;
 const sgn = (x) => (x > 0 ? "+" : x < 0 ? "\u2212" : "");
+const marketName = (sup) => (sup?.label?.split(/[\s:]/)[0]) || "Current"; // "Crisis: ..." -> "Crisis"
 const sim = `<span class="est" title="Simulated suppliers, placeholder prices and lead times">sim.</span>`;
+
+// Upfront pieces shared by the ledger and the cost circle: materials at current-market prices sit inside the
+// router's baseline, the market setting adds only the difference.
+function upfrontParts(base, sup) {
+  if (!sup || sup.none) return null;
+  const s = sup.summary, delta = s.market_cost_delta_usd || 0;
+  const ratio = s.est_material_cost_usd ? (s.est_material_cost_usd - delta) / s.est_material_cost_usd : 1; // selected market -> current prices
+  const cat = {};
+  for (const l of sup.lines) cat[l.category] = (cat[l.category] || 0) + l.est_cost_usd * ratio;
+  const mat = Object.values(cat).reduce((a, b) => a + b, 0), cable = cat.underground || 0, equip = cat.terminals || 0;
+  return { delta, mat, cable, equip, struct: mat - cable - equip, other: Math.max(0, base - mat), over: mat > base };
+}
 
 function ledgerHtml(data, est, sup) {
   const base = data.fc.properties.total_cost_usd, yrs = RATES.years, wm = est.weather_maint;
   const row = (cls, label, val) => `<tr class="${cls}"><td>${label}</td><td>${val}</td></tr>`;
   const flat = est.maintenance_flat_per_year, wx = est.maintenance_per_year - flat;
-  let delta = 0, build, proc = "";
-  if (!sup || sup.none) {
+  const u = upfrontParts(base, sup), delta = u?.delta || 0;
+  let build, proc = "";
+  if (!u) {
     build = row("sub", `Materials at current-market prices ${sim}`, `<span class="muted">needs the backend</span>`);
   } else {
-    const s = sup.summary;
-    delta = s.market_cost_delta_usd || 0;
-    const ratio = s.est_material_cost_usd ? (s.est_material_cost_usd - delta) / s.est_material_cost_usd : 1; // selected market -> current prices
-    const cat = {};
-    for (const l of sup.lines) cat[l.category] = (cat[l.category] || 0) + l.est_cost_usd * ratio;
-    const mat = Object.values(cat).reduce((a, b) => a + b, 0), cable = cat.underground || 0, equip = cat.terminals || 0;
-    build = row("sub", `Materials at current-market prices ${sim}`, M1(mat)) +
-      row("sub2", "HV cable, joints and duct", M1(cable)) + row("sub2", "Substation and terminal equipment", M1(equip)) +
-      row("sub2", "Structures, conductor and other", M1(mat - cable - equip)) +
-      row("sub", "Construction, right-of-way, permitting, fire mitigation", M1(Math.max(0, base - mat))) +
-      (mat > base ? `<tr class="sub"><td colspan="2" class="muted">Catalog materials exceed the router's baseline for this route; treat the split as indicative.</td></tr>` : "");
-    const w = s.earliest_construction_start_weeks, top = s.critical_path_drivers[0];
+    build = row("sub", `Materials at current-market prices ${sim}`, M1(u.mat)) +
+      row("sub2", "HV cable, joints and duct", M1(u.cable)) + row("sub2", "Substation and terminal equipment", M1(u.equip)) +
+      row("sub2", "Structures, conductor and other", M1(u.struct)) +
+      row("sub", "Construction, right-of-way, permitting, fire mitigation", M1(u.other)) +
+      (u.over ? `<tr class="sub"><td colspan="2" class="muted">Catalog materials exceed the router's baseline for this route; treat the split as indicative.</td></tr>` : "");
+    const s = sup.summary, w = s.earliest_construction_start_weeks, top = s.critical_path_drivers[0];
     proc = `<p class="hint" style="margin:0">Procurement: ${w.p50 == null ? "no qualified supplier for some items, so there is no arrival estimate" :
       `the materials allow construction to start around week ${Math.round(w.p50)} (week ${Math.round(w.p90)} if things go slowly)${top ? `, held up mostly by ${esc(top.name)}` : ""}`}.
       Construction is planned to start in week ${sup.params.need_by_weeks}.</p>`;
@@ -272,7 +280,7 @@ function ledgerHtml(data, est, sup) {
     <tr class="head"><td>Upfront build</td><td></td></tr>
     ${row("", "Baseline route cost (router model)", M1(base))}
     ${build}
-    ${row("adj", `Supply market adjustment (${esc(sup?.label?.split(" ")[0] || "Current")})`, delta ? sgn(delta) + M1(Math.abs(delta)) : "$0.0M")}
+    ${row("adj", `Supply market adjustment (${esc(marketName(sup))})`, delta ? sgn(delta) + M1(Math.abs(delta)) : "$0.0M")}
     ${row("", "<b>Upfront total</b>", `<b>${M1(up)}</b>`)}
     <tr class="head"><td>Upkeep, ${yrs} years</td><td></td></tr>
     ${row("", `Flat upkeep ${fmtUsd(flat)}/yr <span class="est">est.</span>`, M1(flat * yrs, 2))}
@@ -281,6 +289,24 @@ function ledgerHtml(data, est, sup) {
     ${row("", "<b>Upkeep total</b>", `<b>${M1(upkeep, 2)}</b>`)}
     <tr class="tot"><td>${yrs}-year total</td><td>${M1(up + upkeep)}</td></tr>
   </tbody></table>${proc}`;
+}
+
+// The cost circle shows the ledger's upfront lines, in the same order and with the same figures.
+function drawCostCircle(data, sup) {
+  const u = upfrontParts(data.fc.properties.total_cost_usd, sup);
+  if (!u) return; // demo / backend down: keep the placeholder split
+  const slices = [["Construction, right-of-way, permitting, fire", u.other, "var(--series-4)"], ["HV cable, joints and duct", u.cable, "var(--series-1)"],
+    ["Substation and terminal equipment", u.equip, "var(--series-3)"], ["Structures, conductor and other", u.struct, "var(--series-2)"]];
+  if (u.delta) slices.push([`Supply market (${marketName(sup)})`, u.delta, "var(--series-5)"]);
+  const parts = slices.filter(([, v]) => v > 0), total = parts.reduce((a, [, v]) => a + v, 0) || 1;
+  let cum = 0;
+  const stops = parts.map(([, v, c]) => { const from = cum; cum += (100 * v) / total; return `${c} ${from.toFixed(2)}% ${cum.toFixed(2)}%`; });
+  const d = $("donut");
+  d.style.background = `conic-gradient(${stops.join(", ")})`;
+  d.setAttribute("aria-label", parts.map(([k, v]) => `${k} ${Math.round((100 * v) / total)}%`).join(", "));
+  $("costTitle").innerHTML = `Where the <span class="it">${money(total)}</span> goes`;
+  $("costTag").innerHTML = sim;
+  $("costLg").innerHTML = parts.map(([k, v, c]) => `<span><span><i style="background:${c}"></i>${esc(k)}</span>${M1(v)}</span>`).join("");
 }
 
 // Simulated arrival times replace the placeholder lead times and the calendar's procurement phase.
@@ -308,6 +334,7 @@ function wireSupply(data, est) {
     $("upfrontFig").textContent = money(base + d);
     $("lifeFig").textContent = money(est.lifetime_cost_40yr + d);
     render(sup);
+    drawCostCircle(data, sup);
     if (!sup.none) simulatedSchedule(data, sup);
   });
 }

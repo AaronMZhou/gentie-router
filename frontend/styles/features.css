@@ -208,3 +208,7 @@ button.rm { flex: none; margin-top: 6px; padding: 2px 8px; font-size: 11px; }
 .ledger .tot td { border-top: 1px solid var(--line2); border-bottom: 0; padding-top: 14px; font: 400 26px/1.2 var(--font-display); }
 .ledger .tot td:last-child { font: 400 30px/1.2 var(--font-display); }
 .ledger .adj td:last-child { color: var(--acc2); }
+
+/* fifth chart series: the supply-market slice of the cost circle */
+:root { --series-5: #f2b441; }
+[data-theme="light"] { --series-5: #b27700; }
