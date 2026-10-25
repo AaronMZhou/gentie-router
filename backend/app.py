@@ -5,13 +5,18 @@ FastAPI backend.
 
 POST /route            {start: [lon, lat], end: [lon, lat], preset?: balanced|avoid_fire|cheapest|underground}
                        -> GeoJSON FeatureCollection
+GET  /health           liveness
 GET  /stats            executor, worker pids, cache hit/miss counters
 GET  /bounds           study-region bbox + data provenance
 GET  /overlays/{name}  firerisk (PNG over the bbox) | fire | protected | tribal | powerlines | roads | substations (GeoJSON)
-GET  /assumptions      cost-model constants
-GET/POST /projects, GET/PATCH/DELETE /projects/{id}, POST /projects/{id}/routes {preset, start_lonlat?, end_lonlat?},
-GET/PATCH/DELETE /routes/{id}        project/route store (SQLite, data/projects.db; seeded with samples on first start)
-GET  /                 the Cesium frontend (static files in frontend/)
+GET  /assumptions      cost-model constants + PRESETS {key: {label, blurb}}
+GET  /projects         project summaries (route summaries + thumbnail geometry, no full GeoJSON)
+POST /projects         {name, voltage_kv, phase, filing_target?}
+GET/PATCH/DELETE /projects/{id}       PATCH with new start_lonlat/end_lonlat recomputes every route first
+POST /projects/{id}/routes            {preset, start_lonlat?, end_lonlat?} -> computes + stores a route
+GET/PATCH/DELETE /routes/{id}         PATCH {name}
+                       store: SQLite at GENTIE_DB (data/projects.db), seeded with samples on first start
+GET  /                 the multi-page frontend (static files in frontend/: index, dashboard, project, route)
 
 Concurrency: /route is async; routing (CPU-bound) runs in a ProcessPoolExecutor whose
 workers each load the cost grids once at startup and return pre-serialized JSON.
