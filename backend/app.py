@@ -39,6 +39,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from backend.weather.weather_service import fetch_weather
+from backend.weather.history_service import fetch_outlook
 
 import config as C
 from backend import inventory, worker
@@ -250,6 +252,60 @@ def overlay(name: str):
     path = C.OVERLAY_DIR / OVERLAYS[name]
     return FileResponse(path, media_type="image/png" if path.suffix == ".png" else "application/geo+json")
 
+class WeatherPoint(BaseModel):
+    id: str
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+
+
+class WeatherRequest(BaseModel):
+    locations: list[WeatherPoint] = Field(min_length=1, max_length=50)
+    forecast_days: int = Field(3, ge=1, le=7)
+
+
+@app.post("/weather/route")
+def weather_route(req: WeatherRequest):
+    # plain `def`: FastAPI runs it in a thread pool, so the blocking client doesn't stall the event loop
+    try:
+        locations = fetch_weather([p.model_dump() for p in req.locations], req.forecast_days)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=502, detail="Weather provider unavailable.")
+    return {"locations": locations}
+
+class OutlookLimits(BaseModel):
+    wind: float = 50
+    gust: float = 70
+    heat: float = 35
+    cold: float = -10
+
+
+class OutlookRequest(BaseModel):
+    locations: list[WeatherPoint] = Field(min_length=1, max_length=20)
+    limits: OutlookLimits = OutlookLimits()
+    past_days: int = Field(92, ge=14, le=92)
+    horizon_days: int = Field(14, ge=1, le=16)
+
+@app.post("/weather/outlook")
+def weather_outlook(req: OutlookRequest):
+    try:
+        return fetch_outlook(
+            [p.model_dump() for p in req.locations],
+            req.limits.model_dump(),
+            req.past_days,
+            req.horizon_days,
+        )
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=502, detail="Weather provider unavailable.")
+
+    
 
 # Static frontend last so API routes take precedence.
 app.mount("/", StaticFiles(directory=C.FRONTEND_DIR, html=True), name="frontend")

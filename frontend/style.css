@@ -234,3 +234,103 @@ table.cmpt { width: 100%; min-width: 520px; border-collapse: collapse; font-size
 .cmpt ul { margin: 0; padding-left: 16px; }
 button.rm { flex: none; margin-top: 6px; padding: 2px 8px; font-size: 11px; }
 .cmpgrid > .muted { margin-top: 8px; }
+.exagrow select option { background: #1b2027; }
+
+
+
+/* Route weather */
+:root { --wx-ok: #3ddc84; --wx-warn: #ffb020; --wx-bad: #ff5a5a; }
+
+/* summary banner */
+.wx-banner { margin: 8px 0 10px; }
+.wx-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 6px; }
+.wx-stat { padding: 8px 6px; border-radius: 8px; text-align: center; border: 1px solid var(--line); }
+.wx-stat .wx-count { font-size: 26px; font-weight: 700; line-height: 1.1; }
+.wx-stat .wx-statlabel { font-size: 11px; font-weight: 600; }
+.wx-stat.ok { background: rgba(61, 220, 132, 0.12); border-color: rgba(61, 220, 132, 0.45); color: #7ef0ae; }
+.wx-stat.warn { background: rgba(255, 176, 32, 0.12); border-color: rgba(255, 176, 32, 0.5); color: #ffc65c; }
+.wx-stat.bad { background: rgba(255, 90, 90, 0.14); border-color: rgba(255, 90, 90, 0.55); color: #ff9a9a; }
+
+/* route strip + chart */
+.wx-strip { display: flex; gap: 2px; margin: 8px 0 2px; }
+.wx-cell { flex: 1; min-width: 0; height: 26px; padding: 0; border: 0; border-radius: 3px; opacity: 0.92; }
+.wx-cell.ok { background: var(--wx-ok); }
+.wx-cell.warn { background: var(--wx-warn); }
+.wx-cell.bad { background: var(--wx-bad); }
+.wx-cell:hover { opacity: 1; outline: 2px solid var(--fg); outline-offset: 1px; }
+
+.wx-chart { width: 100%; height: 80px; background: rgba(255, 255, 255, 0.03); border-radius: 4px; }
+.wx-chart .wx-gust, .wx-spark .wx-gust { fill: none; stroke: #ff8c1a; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.wx-spark .wx-wind { fill: none; stroke: #19d3f0; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.wx-limit { stroke: var(--wx-bad); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+
+/* cards */
+#weatherResults { display: grid; gap: 10px; margin-top: 10px; }
+.weather-card { padding: 12px; border: 1px solid var(--line); border-left: 5px solid var(--wx-ok); border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03); display: grid; gap: 10px; }
+.weather-card.lvl-warn { border-left-color: var(--wx-warn); background: rgba(255, 176, 32, 0.05); }
+.weather-card.lvl-bad { border-left-color: var(--wx-bad); background: rgba(255, 90, 90, 0.07); }
+.weather-card.flash { animation: rowflash 1.4s ease-out; }
+.weather-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.weather-head h4 { margin: 0; font-size: 15px; }
+.weather-coords { margin-top: -6px; font-variant-numeric: tabular-nums; }
+
+.wx-pill { padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; border: 1px solid transparent; }
+.wx-pill.ok { background: rgba(61, 220, 132, 0.18); color: #7ef0ae; border-color: rgba(61, 220, 132, 0.5); }
+.wx-pill.warn { background: rgba(255, 176, 32, 0.2); color: #ffc65c; border-color: rgba(255, 176, 32, 0.55); }
+.wx-pill.bad { background: rgba(255, 90, 90, 0.22); color: #ffb3b3; border-color: rgba(255, 90, 90, 0.6); }
+
+/* metric tiles */
+.wx-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.wx-tile { padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03);
+  display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.wx-tile.wide { grid-column: 1 / -1; }
+.wx-tile.lvl-warn { border-color: rgba(255, 176, 32, 0.55); background: rgba(255, 176, 32, 0.08); }
+.wx-tile.lvl-bad { border-color: rgba(255, 90, 90, 0.65); background: rgba(255, 90, 90, 0.12); }
+.wx-top { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.wx-state { font-size: 10px; font-weight: 700; white-space: nowrap; color: #7ef0ae; }
+.lvl-warn .wx-state { color: #ffc65c; }
+.lvl-bad .wx-state { color: #ff9a9a; }
+.wx-val { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; color: #7ef0ae; overflow-wrap: anywhere; }
+.lvl-warn .wx-val { color: #ffc65c; }
+.lvl-bad .wx-val { color: #ff9a9a; }
+
+.wx-track { position: relative; height: 7px; border-radius: 4px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+.wx-track i { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 4px; }
+.wx-track i.ok { background: var(--wx-ok); }
+.wx-track i.warn { background: var(--wx-warn); }
+.wx-track i.bad { background: var(--wx-bad); }
+.wx-tick { position: absolute; top: 0; bottom: 0; left: 80%; width: 2px; background: var(--fg); opacity: 0.75; }
+.wx-temp .wx-zone { position: absolute; top: 0; bottom: 0; left: 0; background: rgba(25, 211, 240, 0.28); }
+.wx-temp .wx-zone.heat { background: rgba(255, 90, 90, 0.28); }
+.wx-temp i { z-index: 1; }
+
+/* sparkline */
+.wx-spark { width: 100%; height: 56px; background: rgba(255, 255, 255, 0.03); border-radius: 4px; display: block; margin-top: 3px; }
+.wx-spark .wx-prob { fill: rgba(25, 211, 240, 0.16); }
+.wx-spark .wx-day { stroke: rgba(255, 255, 255, 0.14); vector-effect: non-scaling-stroke; }
+.wx-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 3px; }
+.wx-legend span::before { content: ""; display: inline-block; width: 10px; height: 3px; margin-right: 4px; vertical-align: middle; }
+.l-wind::before { background: #19d3f0; }
+.l-gust::before { background: #ff8c1a; }
+.l-prob::before { background: rgba(25, 211, 240, 0.4); height: 8px !important; }
+.l-limit::before { border-top: 2px dashed var(--wx-bad); height: 0 !important; }
+
+details.weather-clear summary { cursor: pointer; color: #7ef0ae; font-weight: 600; padding: 6px 0; }
+.weather-list { display: grid; gap: 10px; margin-top: 8px; }
+
+/* weather: point count + time slider */
+.wx-ctl { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; font-size: 12px; color: var(--muted); }
+.wx-ctl select { padding: 4px 6px; border-radius: 6px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.06); color: var(--fg); font: inherit; }
+.wx-time { margin: 8px 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); }
+.wx-timehead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.wx-timehead b { font-size: 14px; }
+#wxPlay { flex: none; padding: 4px 10px; font-size: 11px; }
+#wxTime { width: 100%; accent-color: var(--accent); }
+.wx-spark .wx-now { stroke: var(--fg); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+
+/* historical outlook */
+.wx-chart .wx-recent { fill: rgba(255, 255, 255, 0.07); }
+#outlookStrip .wx-cell { cursor: default; }
+#outlookStrip .wx-cell:hover { outline: 2px solid var(--fg); outline-offset: 1px; }
+#outlookNote { line-height: 1.5; }
