@@ -369,6 +369,18 @@ Anchors scroll to sections. For real tab switching use `<button>` children with 
 </div>
 ```
 
+### Route page extras
+
+- `.tabs--sticky`: the route tabs stick to the top while scrolling. Sections they point at get `.sect`
+  (adds `scroll-margin-top` so the sticky bar doesn't cover the heading).
+- `.three .map`: the Cesium container that fills the 520 px hero; HUDs are its siblings.
+- `.hud.layers`: layer HUD built from `<details>` / `<summary class="mono-label">` with checkbox `<label>`s and a
+  `.row` of `.btn--sm` buttons (the active view button gets `btn--fill` + `aria-pressed="true"`).
+- `.map-toast`, `.map-readout`: styling for the elements `map.js` appends inside its container.
+- `.analysis`, `.triggers`, `.profile`, `.segments`, `.seg-chip`, `.story`: the markup `panel.js renderResults`
+  writes (results metrics, vs-straight table `.inv.cmp`, notes `.note` with `.good`/`.bad`, demo story).
+- `[hidden]` always wins over a component's `display`, so `el.hidden = true` works on `.pill`, `.hud` and the rest.
+
 ### Bento grid (`.bento` / `.cell`)
 
 A 12-column grid. Each cell sets its width with `grid-column: span N` (default 4). Rows should add

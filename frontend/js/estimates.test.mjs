@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { estimate, rankRoutes } from "./estimates.js";
+import { estimate, rankRoutes, PERMIT_MONTHS } from "./estimates.js";
 
 const p = JSON.parse(readFileSync(new URL("../demo_route.json", import.meta.url))).properties;
 const e = estimate(p);
@@ -21,6 +21,14 @@ assert.equal(e.energize_date, e.calendar.at(-1).end);
 assert.equal(e.permits.length, p.permitting_triggers.length);
 assert.ok(e.permits.every((x) => x.months_max >= x.months_min && x.code && x.reason));
 assert.equal(estimate({ permitting_triggers: [{ code: "ZZZ", reason: "r" }] }).permits[0].months_min, 3);
+// backend trigger codes are keyed (not the 3-6 mo default), and federal/tribal/protected reviews are long
+const months = (code) => estimate({ permitting_triggers: [{ code, reason: "r" }] }).permits[0];
+const tribal = months("TRIBAL_CONSENT");
+assert.ok(tribal.months_min !== 3 || tribal.months_max !== 6, "TRIBAL_CONSENT got the default");
+for (const c of ["FEDERAL_ROW_NEPA", "TRIBAL_CONSENT", "PROTECTED_AREA"]) assert.ok(months(c).months_max >= 12, c);
+const backendCodes = readFileSync(new URL("../../backend/router.py", import.meta.url), "utf8").match(/"code": "([A-Z_]+)"/g).map((m) => m.slice(9, -1));
+assert.ok(backendCodes.length >= 7, `parsed ${backendCodes}`);
+for (const c of backendCodes) assert.ok(c in PERMIT_MONTHS, `PERMIT_MONTHS missing backend code ${c}`);
 assert.ok(e.lead_times.length && e.lead_times.every((l) => l.weeks > 0));
 assert.deepEqual(e.labels, { cheapest_build: false, fastest: false });
 
