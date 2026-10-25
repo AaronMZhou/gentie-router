@@ -106,7 +106,7 @@ $("btnValidate").onclick = async () => {
   $("valRows").innerHTML = v.rows;
   $("valNote").innerHTML = v.note;
   $("btnValidate").textContent = `Compare to real line (${(v.index + 1) % v.count + 1}/${v.count} next)`;
-  setStatus("Magenta = real existing line; orange/cyan = our route with that line hidden.");
+  setStatus("Magenta = real existing line; solid/dashed = our route with that line hidden.");
 };
 const toggles = { tglFire: "fire", tglHftd: "hftd", tglProtected: "protected", tglTribal: "tribal", tglLines: "lines",
                   tglBaseline: "baseline", tglContours: "contours", tglCities: "cities", tglBorders: "borders" };

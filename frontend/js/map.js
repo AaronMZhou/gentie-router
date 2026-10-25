@@ -1,6 +1,7 @@
 /* Gen-tie Router Cesium map: viewer, routes, overlays, view modes, fly-along, validation.
-   Ported from app.js; behaviour and the performance settings are unchanged. */
+   Ported from app.js with its performance settings; route styling follows styles/STYLES.md §6. */
 import { fmtKm } from "./panel.js";
+import { cssVar, onThemeChange } from "./theme.js";
 
 const cfg = window.APP_CONFIG || {};
 const API = cfg.API_BASE || "";
@@ -16,8 +17,6 @@ export async function getJson(path, opts) {
 }
 
 const COLORS = {
-  oh: Cesium.Color.fromCssColorString("#ff8c1a"),
-  ug: Cesium.Color.fromCssColorString("#19d3f0"),
   start: Cesium.Color.fromCssColorString("#3ddc84"),
   end: Cesium.Color.fromCssColorString("#b57cff"),
   bbox: Cesium.Color.fromCssColorString("#ffffff").withAlpha(0.8),
@@ -56,6 +55,34 @@ const TOWER_IMG = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(
       <path d="M12 3 L5 37 M12 3 L19 37 M3 11 H21 M5.5 18 H18.5 M7.5 25 L16.5 33 M16.5 25 L7.5 33 M7 25 H17"
             stroke="#ff8c1a" stroke-width="2"/>
     </g></svg>`);
+
+// Flowing line (the mockup's `.flow`): screen-space dashes, 4 px on / 14 px off, in dashColor (--text)
+// sliding along a soft-edged base line in color (--acc).  offset is in CSS pixels.
+const FLOW_PERIOD = 18, FLOW_SPEED = 0.033; // px per ms (mockup: 200 px per 6 s)
+Cesium.Material._materialCache.addMaterial("GentieFlow", {
+  fabric: {
+    type: "GentieFlow",
+    uniforms: { color: Cesium.Color.WHITE, dashColor: Cesium.Color.BLACK, offset: 0 },
+    source: `
+      in float v_polylineAngle;
+      czm_material czm_getMaterial(czm_materialInput materialInput) {
+        czm_material m = czm_getDefaultMaterial(materialInput);
+        float c = cos(v_polylineAngle), s = sin(v_polylineAngle);
+        float along = (mat2(c, s, -s, c) * gl_FragCoord.xy).x;
+        float p = fract((along - offset * czm_pixelRatio) / (${FLOW_PERIOD}.0 * czm_pixelRatio));
+        float core = 1.0 - abs(materialInput.st.t - 0.5) * 2.0; // 1 on the centre line, 0 at the edges
+        vec4 col = (p < ${4 / FLOW_PERIOD} && core > 0.55) ? dashColor
+                 : vec4(color.rgb, color.a * mix(0.3, 1.0, smoothstep(0.0, 0.6, core)));
+        col = czm_gammaCorrect(col);
+        m.emission = col.rgb;
+        m.alpha = col.a;
+        return m;
+      }`,
+  },
+  translucent: () => true,
+});
+
+const cssColor = (name) => Cesium.Color.fromCssColorString(cssVar(name)) || Cesium.Color.WHITE; // tokens.css missing
 
 // Country/state borders and city labels: static files from data/prepare_basemap.py, so they also
 // show in demo mode.  Cities appear by tier as you zoom in: metros always, cities < 250 km, towns < 60 km.
@@ -468,16 +495,84 @@ export async function createMap(container, opts = {}) {
     }
   }
 
+  // ------------------------------------------------------------------ flow + route colours
+  // The flow keeps render-on-demand and requests ~30 frames/s itself, so camera moves still render
+  // at full rate and stopFly() (which resets requestRenderMode) can't stop it.
+  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+  let flowOn = true, flowTimer = 0, flowPhase = 0, flowT = 0;
+  function syncFlow() {
+    const run = flowOn && selectedId !== null && !document.hidden && !reducedMotion.matches;
+    if (run && !flowTimer) { flowT = performance.now(); flowTimer = setInterval(() => scene.requestRender(), 33); }
+    else if (!run && flowTimer) { clearInterval(flowTimer); flowTimer = 0; scene.requestRender(); }
+  }
+  document.addEventListener("visibilitychange", syncFlow);
+  reducedMotion.addEventListener("change", syncFlow);
+
+  const flowMaterial = { // MaterialProperty; non-constant, so Cesium re-reads the uniforms every frame
+    definitionChanged: new Cesium.Event(), isConstant: false,
+    // color must be a Property: Cesium's dynamic-material batch reads material.color.getValue()
+    color: new Cesium.ConstantProperty(Cesium.Color.WHITE), dashColor: Cesium.Color.BLACK,
+    getType: () => "GentieFlow",
+    getValue(time, result = {}) {
+      if (flowTimer) { // advances only while running, so pausing freezes the dashes in place
+        const now = performance.now();
+        flowPhase = (flowPhase + (now - flowT) * FLOW_SPEED) % FLOW_PERIOD;
+        flowT = now;
+      }
+      result.color = this.color.getValue(time); result.dashColor = this.dashColor; result.offset = flowPhase;
+      return result;
+    },
+    equals(other) { return this === other; },
+  };
+
+  // Selected route = --route-1 (--acc); the others take --route-2..4 in insertion order.
+  const routeSlot = (id) => id === selectedId ? 1 : 2 + [...routes.keys()].filter((o) => o !== selectedId).indexOf(id) % 3;
+  const routeColor = (id) => routes.has(id) ? cssVar(`--route-${routeSlot(id)}`) : "";
+
+  // (Re)colours one route for its selection state and the current theme.
+  function paintRoute(r) {
+    const sel = r.id === selectedId;
+    const color = Cesium.Color.fromCssColorString(routeColor(r.id)) || Cesium.Color.WHITE;
+    const dashed = routeSlot(r.id) === 2; // the --acc2 route is dashed (7 on, 6 off)
+    const dim = color.withAlpha(0.65);
+    for (const ent of r.ohLines) {
+      ent.polyline.width = sel ? 9 : 3;
+      ent.polyline.material = sel ? flowMaterial
+        : dashed ? new Cesium.PolylineDashMaterialProperty({ color: dim, dashLength: 13, dashPattern: 0x01ff }) : dim;
+    }
+    for (const ent of r.ugLines) {
+      ent.polyline.width = sel ? 5 : 3;
+      ent.polyline.material = new Cesium.PolylineDashMaterialProperty({ color: sel ? color : dim, dashLength: 14 });
+    }
+    const acc = cssColor("--acc");
+    for (const ent of r.ds.top.entities.values) {
+      if (ent.billboard) ent.show = sel; // lattice glyphs: selected route only
+      if (ent.point) { ent.show = sel; ent.point.color = acc; }
+    }
+  }
+
+  function paintAll() {
+    const acc = cssColor("--acc");
+    flowMaterial.color.setValue(acc);
+    flowMaterial.dashColor = cssColor("--text");
+    for (const r of routes.values()) paintRoute(r);
+    const r = routes.get(selectedId);
+    if (r) for (const ent of r.ds.hardware.entities.values) if (ent.point) ent.point.color = acc;
+    syncFlow();
+    redraw(1500);
+  }
+  onThemeChange(paintAll);
+
   // ------------------------------------------------------------------ routes
   function removeRoute(id) {
     stopFly();
     const r = routes.get(id);
     if (!r) return;
     routes.delete(id);
-    if (selectedId === id) selectedId = null;
+    if (selectedId === id) { selectedId = null; clearMarkers(); } // P/S markers belonged to this route
     // remove() is false for a layer whose async add() hasn't landed yet; showRoute's add callback drops it
     for (const ds of Object.values(r.ds)) viewer.dataSources.remove(ds, true);
-    redraw(600);
+    paintAll(); // the other routes' colour slots shift
   }
 
   function clearRoutes() {
@@ -491,7 +586,7 @@ export async function createMap(container, opts = {}) {
     const ds = {};
     for (const k of ["route", "top", "enh", "hardware", "baseline"]) ds[k] = new Cesium.CustomDataSource(`${k}:${id}`);
     let towerLL = [];
-    const segments = [];
+    const segments = [], ohLines = [], ugLines = []; // coloured by paintRoute
     const box = [Infinity, Infinity, -Infinity, -Infinity];
     for (const f of fc.features) {
       const p = f.properties;
@@ -503,12 +598,9 @@ export async function createMap(container, opts = {}) {
           box[2] = Math.max(box[2], lon); box[3] = Math.max(box[3], lat);
         }
         if (p.mode === "overhead") {
-          ds.top.entities.add({ polyline: { positions, clampToGround: true, width: 5, material: COLORS.oh } });
+          ohLines.push(ds.top.entities.add({ polyline: { positions, clampToGround: true } }));
         } else {
-          ds.route.entities.add({ polyline: {
-            positions, clampToGround: true, width: 5,
-            material: new Cesium.PolylineDashMaterialProperty({ color: COLORS.ug, dashLength: 14 }),
-          } });
+          ugLines.push(ds.route.entities.add({ polyline: { positions, clampToGround: true } }));
         }
       } else if (p.kind === "towers") {
         towerLL = f.geometry.coordinates;
@@ -531,6 +623,9 @@ export async function createMap(container, opts = {}) {
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
       });
+      // Top View terrain is flat, so a plain height-0 point sits on the ground without clamping
+      ds.top.entities.add({ position: Cesium.Cartesian3.fromDegrees(lon, lat), point: { pixelSize: 7,
+        outlineColor: Cesium.Color.BLACK.withAlpha(0.7), outlineWidth: 1.5, disableDepthTestDistance: Number.POSITIVE_INFINITY } });
     }
 
     // towers grouped into overhead runs (a gap > 400 m = underground section in between)
@@ -547,14 +642,13 @@ export async function createMap(container, opts = {}) {
     // Enhanced: the overhead trace runs tower to tower, exactly under the conductors
     for (const run of runs) {
       if (run.length < 2) continue;
-      ds.enh.entities.add({ polyline: {
+      ohLines.push(ds.enh.entities.add({ polyline: {
         positions: Cesium.Cartesian3.fromDegreesArray(run.flatMap((i) => towerLL[i])), clampToGround: true,
-        width: 4, material: COLORS.oh.withAlpha(0.85),
-      } });
+      } }));
     }
 
     const props = fc.properties;
-    const r = { id, ds, start: props.start, end: props.end, box, segments, towerLL, runs, towerBearing };
+    const r = { id, ds, start: props.start, end: props.end, box, segments, ohLines, ugLines, towerLL, runs, towerBearing };
     routes.set(id, r);
     // Route layers go under the overlays, as in the original fixed layer order
     // (route, routeTop, routeEnh, hardware, baseline were created before any overlay).
@@ -566,8 +660,7 @@ export async function createMap(container, opts = {}) {
       }
       redraw();
     });
-    if (selected) selectRoute(id); else applyRouteVisibility();
-    redraw();
+    if (selected) selectRoute(id); else { applyRouteVisibility(); paintAll(); }
 
     if (frame && Number.isFinite(box[0])) frameRoute(id, 1.6);
   }
@@ -583,8 +676,8 @@ export async function createMap(container, opts = {}) {
     placeMarker("start", r.start, "Project site");
     placeMarker("end", r.end, "Substation");
     applyRouteVisibility();
+    paintAll();
     buildHardware(r);
-    redraw();
   }
 
   // 3D poles + crossarms + three sagging conductors per span.  Positions are absolute heights
@@ -605,9 +698,14 @@ export async function createMap(container, opts = {}) {
     const steel = Cesium.Color.fromCssColorString("#c9ced4");
     const wire = Cesium.Color.fromCssColorString("#2b2f33").withAlpha(0.9);
     const ents = r.ds.hardware.entities;
+    const acc = cssColor("--acc");
     ents.suspendEvents();
     r.towerLL.forEach(([lon, lat], i) => {
       const at = (h) => Cesium.Cartesian3.fromDegrees(lon, lat, ground[i] + h);
+      // tower dot at the pole foot, on the flow line; shown at every distance (the poles are NEAR only).
+      // Coarser rendered terrain can sit above the sampled height, so skip the depth test when near.
+      ents.add({ position: at(2), point: { pixelSize: 7, color: acc, outlineColor: Cesium.Color.BLACK.withAlpha(0.7),
+        outlineWidth: 1.5, disableDepthTestDistance: 5000 } });
       ents.add({ position: at(TOWER_H / 2 - 1), cylinder: { length: TOWER_H + 2, topRadius: 0.35, bottomRadius: 1.1,
         material: steel, distanceDisplayCondition: NEAR, shadows: Cesium.ShadowMode.ENABLED } });
       ents.add({ position: at(TOWER_H),
@@ -862,7 +960,8 @@ export async function createMap(container, opts = {}) {
   return {
     viewer, ready,
     bounds: () => bounds,
-    showRoute, removeRoute, clearRoutes, selectRoute,
+    showRoute, removeRoute, clearRoutes, selectRoute, routeColor,
+    setFlow: (on) => { flowOn = !!on; syncFlow(); },
     setPickMode: (on) => { state.pickMode = !!on; },
     placeMarker, clearMarkers, frameRoute, homeView,
     setView, getView: () => state.view,
