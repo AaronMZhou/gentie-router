@@ -167,14 +167,6 @@ img, svg { display: block; max-width: 100%; }
 .choice:hover { border-color: var(--acc); }
 .choice b { display: block; font-family: var(--font-display); font-weight: 400; font-size: 22px; margin-bottom: 4px; }
 
-/* HUD elements created by js/map.js inside the Cesium container */
-.map-toast { position: absolute; z-index: 5; left: 50%; bottom: 40px; transform: translateX(-50%); max-width: min(560px, calc(100% - 32px));
-  background: var(--bg2); color: var(--text); border: 1px solid var(--acc2); box-shadow: inset 3px 0 0 var(--acc2); border-radius: var(--r-sm);
-  padding: 10px 14px; font-size: 13px; }
-.map-toast.info { border-color: var(--line2); box-shadow: none; }
-.map-readout { position: absolute; z-index: 2; right: 12px; bottom: 36px; background: var(--bg2); border: 1px solid var(--line);
-  border-radius: var(--r-sm); padding: 6px 10px; font-size: var(--fs-small); font-variant-numeric: tabular-nums; pointer-events: none; }
-
 /* ---------- route page ---------- */
 .rhead { display: flex; justify-content: space-between; align-items: flex-end; padding: 30px 28px; border-bottom: 1px solid var(--line);
   gap: 20px; flex-wrap: wrap; }
@@ -292,6 +284,7 @@ img, svg { display: block; max-width: 100%; }
   /* toolbar drops to bottom right so it doesn't collide with the badge */
   .maptools { right: 12px; top: auto; bottom: 12px; width: min(260px, calc(100% - 24px)); max-height: calc(100% - 24px); }
   .nav-top { flex-wrap: wrap; }
+  .proj .map-readout { bottom: 64px; right: 12px; } /* clear of the bottom-right .maptools */
   .mapbadge { left: 12px; top: 12px; }
   .maplegend { left: 12px; bottom: 12px; }
   .navl { display: none; }

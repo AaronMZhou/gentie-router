@@ -54,6 +54,15 @@ async function reload({ frame = false } = {}) {
   draw({ frame });
   render();
 }
+// after a successful save: a failed reload must not read as a failed save
+async function refresh(opts) {
+  try {
+    await reload(opts);
+  } catch (e) {
+    map.toast(`Saved, but couldn't reload the routes: ${errMsg(e)}. Refresh the page.`);
+    render();
+  }
+}
 
 // ------------------------------------------------------------------ map
 function draw({ frame = false } = {}) {
@@ -89,6 +98,7 @@ function select(id, { frame = false } = {}) {
 function startPick(kind) {
   mode = kind;
   picks = [];
+  $("tools").open = false; // the toolbar HUD would swallow clicks on the map
   map.setPickMode(true);
   render();
 }
@@ -117,18 +127,19 @@ async function savePicks() {
   try {
     if (mode === "pick-new") selected = (await addRoute(projectId, { preset: "balanced", start_lonlat, end_lonlat })).route_summary.id;
     else await updateProject(projectId, { start_lonlat, end_lonlat });
-    mode = "view";
-    busy = "";
-    picks = [];
-    await reload({ frame: true });
-    lookupPlaces();
   } catch (e) {
     busy = "";
     picks = [];
-    if (mode !== "view") map.setPickMode(true); // pick again from the project site
+    map.setPickMode(true); // pick again from the project site
     map.toast(`Couldn't save the endpoints: ${errMsg(e)}`);
     renderRail();
+    return;
   }
+  mode = "view";
+  busy = "";
+  picks = [];
+  await refresh({ frame: true });
+  lookupPlaces();
 }
 
 // ------------------------------------------------------------------ rendering
@@ -169,7 +180,7 @@ function renderLegend() {
 function card(r) {
   const e = r.est, p = r.fc.properties, m = e.is_placeholder ? EST : "";
   const [pill, cls] = e.recommended ? ["Recommended", "pill pill--blue"] : e.labels.cheapest_build ? ["Cheapest build", "pill"]
-    : e.labels.fastest ? ["Fastest", "pill pill--ok"] : [presets[r.preset]?.label || r.preset, "mono-label"];
+    : e.labels.fastest ? ["Fastest", "pill pill--ok"] : [esc(presets[r.preset]?.label || r.preset), "mono-label"];
   const ug = (p.underground_km || 0) > 0;
   const on = r.id === selected;
   return `<div class="rcard${on ? " is-selected" : ""}" data-id="${r.id}" tabindex="0" role="button" aria-pressed="${on}">
@@ -239,13 +250,14 @@ async function add(preset) {
   render();
   try {
     selected = (await addRoute(projectId, { preset })).route_summary.id;
-    busy = "";
-    await reload({ frame: true });
   } catch (e) {
     busy = "";
     map.toast(`Couldn't add the route: ${errMsg(e)}`);
     render();
+    return;
   }
+  busy = "";
+  await refresh({ frame: true });
 }
 
 let renaming = null;
@@ -261,11 +273,12 @@ async function removeRoute(id) {
   if (!confirm(`Delete route ${r.n} · ${r.name}? This can't be undone.`)) return;
   try {
     await deleteRoute(id);
-    if (selected === id) selected = null;
-    await reload();
   } catch (e) {
     map.toast(`Couldn't delete the route: ${errMsg(e)}`);
+    return;
   }
+  if (selected === id) selected = null;
+  await refresh();
 }
 
 async function runValidation() {
@@ -418,8 +431,8 @@ async function boot() {
     return;
   }
   app.replaceChildren($("proj-tpl").content.cloneNode(true));
-  map = await createMap($("cesium"), { onPick, onRouteClick: (id) => select(id) });
-  window.__map = map;
+  map = await createMap($("cesium"), { onPick, onRouteClick: (id) => select(id), panelOffset: 0 }); // the rail sits outside the map
+  window.__map = map; // handle for smoke --eval checks and the console (module scope isn't visible)
   map.setFlow?.(true);
   wire();
   syncView();

@@ -359,8 +359,7 @@ what's behind it.
 <button class="choice" type="button"><b>Avoid fire</b><span class="muted">Weights overhead line in high hazard…</span></button>
 ```
 `.maptools` sits top right (bottom right below 900 px) and shrinks to its summary when closed.
-`[aria-pressed="true"]` inside it marks the active view. `.map-toast` / `.map-readout` theme the HUD
-elements `js/map.js` creates inside the Cesium container.
+`[aria-pressed="true"]` inside it marks the active view.
 
 ### Tabs (`.tabs`)
 
