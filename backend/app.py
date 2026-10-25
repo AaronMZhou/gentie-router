@@ -464,4 +464,13 @@ def weather_outlook(req: OutlookRequest):
     
 
 # Static frontend last so API routes take precedence.
-app.mount("/", StaticFiles(directory=C.FRONTEND_DIR, html=True), name="frontend")
+class RevalidatedStatic(StaticFiles):
+    """no-cache = always revalidate (cheap 304 via ETag). Without it browsers heuristically reuse imported JS modules
+    and keep showing old code after an update."""
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+
+app.mount("/", RevalidatedStatic(directory=C.FRONTEND_DIR, html=True), name="frontend")
