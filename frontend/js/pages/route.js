@@ -3,6 +3,8 @@ import { getRoute, getProject, updateProject, getAssumptions } from "../api.js";
 import { estimate } from "../estimates.js";
 import { renderResults, fmtUsd, fmtKm } from "../panel.js";
 import { createMap } from "../map.js";
+import { supplyCell, initSupply } from "../supply.js";
+import { weatherCell, initWeather } from "../weather-cell.js";
 
 initThemeToggle(document.querySelector(".theme-toggle"));
 
@@ -134,7 +136,7 @@ function page({ fc, route, project, demo }, est) {
   </div>
   <nav class="tabs tabs--sticky" aria-label="Route sections">
     <a href="#overview" class="is-active" aria-current="true">Overview</a><a href="#costs">Costs</a><a href="#inventory">Inventory</a>
-    <a href="#maintenance">Maintenance</a><a href="#calendar">Calendar</a><a href="#permits">Permits &amp; legal</a><a href="#logistics">Logistics</a><a href="#analysis">Route analysis</a>
+    <a href="#maintenance">Maintenance</a><a href="#calendar">Calendar</a><a href="#permits">Permits &amp; legal</a><a href="#logistics">Logistics</a><a href="#supply">Supply chain</a><a href="#weather">Weather</a><a href="#analysis">Route analysis</a>
   </nav>
   <section class="three grid-bg sect" id="overview" aria-label="3D route view">
     <div class="map" id="map"></div>
@@ -210,6 +212,8 @@ function page({ fc, route, project, demo }, est) {
       </table>
       ${leads.length ? `<div class="risk" style="margin-top:14px">▲ ${esc(leads[0].item)} sets the critical path at ${leads[0].weeks} wks${mk("Placeholder lead time")}</div>` : ""}
     </div>
+    ${supplyCell(Number(project.voltage_kv))}
+    ${weatherCell()}
     ${analysisCell()}
   </div>`;
 }
@@ -422,7 +426,9 @@ async function boot() {
   $("assumptions").textContent = await assumptionsNote(data.demo);
   wireActions(data, est);
   wireTabs();
-  await initMap(data);
+  const map = await initMap(data);
+  initSupply({ start: data.fc.properties.start, end: data.fc.properties.end, preset: data.route.preset }, { demo: data.demo });
+  if (map) await initWeather(map, data.fc);
 }
 
 // Boot (and Retry): any error that escapes boot is shown, not swallowed.

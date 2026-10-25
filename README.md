@@ -20,7 +20,8 @@ frontend/
   index.html             landing page
   dashboard.html         every project, KPIs, "+ Start a project"
   project.html           one project: all its routes on the map, route cards, add/rename/delete, validation
-  route.html             one route: 3D hero with fly-along, costs, inventory, calendar, permits, full analysis
+  route.html             one route: 3D hero with fly-along, costs, inventory, calendar, permits, supply chain, weather, full analysis
+  suppliers.html         mock supplier bids for one material (opened from a route's Supply chain section)
   styles/                tokens.css, components.css, STYLES.md (the style guide), preview.html
   js/                    map.js (Cesium), panel.js, api.js, estimates.js, theme.js, pages/*.js
   config.js              your Cesium ion token (git-ignored; see config.example.js)
@@ -92,7 +93,7 @@ Open **http://localhost:8000**. The backend serves the frontend too, so this one
 - **Landing** (`/`): what the tool does. "Start a project" goes to the dashboard; "Watch a route get built" opens the offline demo.
 - **Dashboard** (`dashboard.html`): a card per project with a route thumbnail and phase, plus KPIs. **+ Start a project** asks for a name, voltage and phase, then opens the project page in pick mode.
 - **Project** (`project.html?id=…`): every candidate route on one Cesium map, with a card rail beside it. Click once to place the **project site**, then again to place the **substation**; clicking a purple substation marker snaps to it, and a click outside the dashed study region shows a toast. **+ Add route** computes another route with a strategy preset; cards can be renamed or deleted; **Change endpoints** re-picks both points and recomputes every route; **Project ⋯** edits the name, phase and filing target or deletes the project. The **Layers · view** HUD has the view switch, terrain height, every overlay toggle and **Compare to real line**.
-- **Route** (`route.html?id=…`): a 3D hero with the flowing route line, **▶ Fly along**, a layers HUD, the data badge (amber when any layer is synthetic) and a hover/click segment callout; then costs, inventory, maintenance, deployment calendar, permits & legal, and the full route analysis (every results metric, right-of-way, vs-straight table, elevation profile, segments, the cost-assumption note from `/assumptions`, camera help). **Export packet** downloads the route + estimate as JSON; **Mark for filing** sets the project phase to ready.
+- **Route** (`route.html?id=…`): a 3D hero with the flowing route line, **▶ Fly along**, a layers HUD, the data badge (amber when any layer is synthetic) and a hover/click segment callout; then costs, inventory, maintenance, deployment calendar, permits & legal, a **Supply chain** simulation (`POST /inventory`: long-lead order plan, on-time odds, links to mock supplier bids), **Weather** (Open-Meteo forecast and 3-month outlook along the route: `/weather/route`, `/weather/outlook`), and the full route analysis (every results metric, right-of-way, vs-straight table, elevation profile, segments, the cost-assumption note from `/assumptions`, camera help). **Export packet** downloads the route + estimate as JSON; **Mark for filing** sets the project phase to ready.
 - **Demo** (`route.html?demo=1`): the route page on `demo_route.json` with no API calls, plus the "About this demo" card.
 
 Every page has a light/dark toggle (remembered; defaults to the OS setting). Maintenance, lifetime cost, calendar, lead times and permit durations come from `frontend/js/estimates.js` and are **placeholders**, marked `est.` wherever they appear; the deployment calendar is one of them. The upfront total, inventory, triggers and every route-analysis metric are real model output.

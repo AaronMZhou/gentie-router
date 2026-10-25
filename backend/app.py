@@ -7,6 +7,11 @@ POST /route            {start: [lon, lat], end: [lon, lat], preset?: balanced|av
                        -> GeoJSON FeatureCollection
 GET  /health           liveness
 GET  /stats            executor, worker pids, cache hit/miss counters
+POST /inventory        {start, end, voltage_kv?, capacity_mw?, need_by_weeks?, market?, include_terminals?}
+                       -> BOM, supplier fill, long-lead order plan, on-time probability (see backend/inventory.py)
+GET  /inventory/catalog  the simulated supplier catalog (suppliers, stock, lead-time bands, market scenarios)
+GET  /inventory/bids     ?item=&qty=&voltage_kv=&capacity_mw=&market=&need_by_week=&site_lon=&site_lat=
+                         -> mock supplier bids for one material, scored for comparison
 GET  /bounds           study-region bbox + data provenance
 GET  /overlays/{name}  firerisk (PNG over the bbox) | fire | protected | tribal | powerlines | roads | substations (GeoJSON)
 GET  /assumptions      cost-model constants + PRESETS {key: {label, blurb}}
@@ -23,7 +28,8 @@ workers each load the cost grids once at startup and return pre-serialized JSON.
 Finished responses go in an in-memory LRU, and identical requests already in flight
 share one computation (single-flight).  Environment variables:
 
-    ROUTE_WORKERS     worker processes (default 8; 0 = inline in a thread pool)
+    ROUTE_WORKERS     worker processes (default: auto, up to 8 as CPUs and free memory allow;
+                      0 = inline in a thread pool)
     ROUTE_CACHE_SIZE  cached responses (default 1024; 0 disables)
     GENTIE_DB         project store path (default data/projects.db)
     GENTIE_NO_SEED    1 = don't create sample projects in an empty store
@@ -34,6 +40,7 @@ import os
 import sqlite3
 from collections import OrderedDict
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from contextlib import asynccontextmanager
 from datetime import date
 from typing import Annotated, Literal
@@ -44,9 +51,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from backend.weather.weather_service import fetch_weather
+from backend.weather.history_service import fetch_outlook
 
 import config as C
-from backend import seed, worker
+from backend import inventory, seed, worker
 from backend.store import Store
 
 Phase = Literal["drafting", "comparing", "permit-risk", "ready"]
@@ -56,7 +65,21 @@ OVERLAYS = {"fire": "fire.geojson", "firerisk": "firerisk.png", "protected": "pr
             "tribal": "tribal.geojson", "powerlines": "powerlines.geojson", "roads": "roads.geojson",
             "substations": "substations.geojson"}
 
-WORKERS = int(os.getenv("ROUTE_WORKERS", "8"))
+MAX_AUTO_WORKERS = 8
+WORKER_MB = 350         # measured peak ~260 MB per worker (each loads its own cost grids), plus headroom
+
+
+def auto_workers():
+    """As many workers as CPUs and free memory allow (capped at MAX_AUTO_WORKERS); 0 = run inline."""
+    try:
+        import psutil
+        free_mb = psutil.virtual_memory().available / 1e6
+    except ImportError:
+        return 2
+    return max(0, min(MAX_AUTO_WORKERS, os.cpu_count() or 1, int(free_mb // WORKER_MB) - 1))  # -1 leaves room for the API
+
+
+WORKERS = int(os.getenv("ROUTE_WORKERS") or auto_workers())
 CACHE_SIZE = int(os.getenv("ROUTE_CACHE_SIZE", "1024"))
 CACHE_KEY_DECIMALS = 5  # ~1 m: requests for the same points share a cache entry
 
@@ -112,14 +135,20 @@ state = {"pool": None, "pids": [], "meta": None, "cache": RouteCache(CACHE_SIZE)
 @asynccontextmanager
 async def lifespan(_app):
     state["meta"] = json.loads(C.META_PATH.read_text())
+    mode = None
     if WORKERS > 0:
         pool = ProcessPoolExecutor(max_workers=WORKERS, initializer=worker.init_worker)
         loop = asyncio.get_running_loop()
-        # spawn every worker (each loads the cost grids) before taking traffic
-        state["pids"] = sorted(set(await asyncio.gather(*[loop.run_in_executor(pool, worker.warm) for _ in range(WORKERS)])))
-        state["pool"] = pool
-        mode = f"process pool, {len(state['pids'])} workers"
-    else:
+        try:
+            # spawn every worker (each loads the cost grids) before taking traffic
+            state["pids"] = sorted(set(await asyncio.gather(*[loop.run_in_executor(pool, worker.warm) for _ in range(WORKERS)])))
+            state["pool"] = pool
+            mode = f"process pool, {len(state['pids'])} workers"
+        except BrokenProcessPool:                     # typically out of memory: serve inline instead of failing
+            pool.shutdown(cancel_futures=True)
+            state["pids"] = []
+            print(f"[gentie] could not start {WORKERS} route workers (low memory?); falling back to inline routing")
+    if mode is None:
         worker.init_worker()
         mode = "inline (thread pool, single process)"
     print(f"[gentie] {mode}; cache {CACHE_SIZE} entries; synthetic layers: {state['meta']['synthetic_layers'] or 'none'}")
@@ -306,6 +335,45 @@ def delete_route(id: int):
     return Response(status_code=204)
 
 
+class InventoryRequest(BaseModel):
+    start: LonLat
+    end: LonLat
+    voltage_kv: Literal[69, 138] = 69
+    capacity_mw: float = Field(100, gt=0, le=1000, description="project size; sets the generator step-up transformer MVA")
+    need_by_weeks: float = Field(104, ge=0, le=520, description="weeks from today until construction must start")
+    market: Literal["current", "tight", "crisis"] = "current"
+    preset: str = "balanced"
+    include_terminals: bool = Field(True, description="include breakers, switches, relays and the GSU at the two ends")
+
+
+@app.post("/inventory")
+async def inventory_assess(req: InventoryRequest):
+    """Re-uses /route (and its cache), so asking for inventory right after a route costs almost nothing extra."""
+    route_fc = await _route_or_400(req.start, req.end, req.preset)
+    params = req.model_dump(exclude={"start", "end", "preset"})
+    return await run_in_threadpool(inventory.assess, route_fc, **params)
+
+
+@app.get("/inventory/catalog")
+def inventory_catalog():
+    return inventory.load_catalog()
+
+
+@app.get("/inventory/bids")
+def inventory_bids(item: str, qty: Annotated[float, Field(gt=0)], voltage_kv: int = 69,
+                   capacity_mw: Annotated[float, Field(gt=0, le=1000)] = 100,
+                   market: Literal["current", "tight", "crisis"] = "current",
+                   need_by_week: float | None = None, site_lon: float | None = None, site_lat: float | None = None):
+    """Mock supplier bids for one BOM line (the 'View suppliers' page)."""
+    if voltage_kv not in (69, 138):          # an int Literal would not accept the query string "69"
+        raise HTTPException(422, "voltage_kv must be 69 or 138")
+    site = [site_lon, site_lat] if site_lon is not None and site_lat is not None else None
+    try:
+        return inventory.bids(item, qty, voltage_kv, capacity_mw, market, need_by_week, site)
+    except KeyError:
+        raise HTTPException(404, f"unknown item '{item}'")
+
+
 @app.get("/stats")
 def stats():
     return {"executor": "process" if state["pool"] else "inline", "workers": len(state["pids"]) or 1,
@@ -319,6 +387,60 @@ def overlay(name: str):
     path = C.OVERLAY_DIR / OVERLAYS[name]
     return FileResponse(path, media_type="image/png" if path.suffix == ".png" else "application/geo+json")
 
+class WeatherPoint(BaseModel):
+    id: str
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+
+
+class WeatherRequest(BaseModel):
+    locations: list[WeatherPoint] = Field(min_length=1, max_length=50)
+    forecast_days: int = Field(3, ge=1, le=7)
+
+
+@app.post("/weather/route")
+def weather_route(req: WeatherRequest):
+    # plain `def`: FastAPI runs it in a thread pool, so the blocking client doesn't stall the event loop
+    try:
+        locations = fetch_weather([p.model_dump() for p in req.locations], req.forecast_days)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=502, detail="Weather provider unavailable.")
+    return {"locations": locations}
+
+class OutlookLimits(BaseModel):
+    wind: float = 50
+    gust: float = 70
+    heat: float = 35
+    cold: float = -10
+
+
+class OutlookRequest(BaseModel):
+    locations: list[WeatherPoint] = Field(min_length=1, max_length=20)
+    limits: OutlookLimits = OutlookLimits()
+    past_days: int = Field(92, ge=14, le=92)
+    horizon_days: int = Field(14, ge=1, le=16)
+
+@app.post("/weather/outlook")
+def weather_outlook(req: OutlookRequest):
+    try:
+        return fetch_outlook(
+            [p.model_dump() for p in req.locations],
+            req.limits.model_dump(),
+            req.past_days,
+            req.horizon_days,
+        )
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=502, detail="Weather provider unavailable.")
+
+    
 
 # Static frontend last so API routes take precedence.
 app.mount("/", StaticFiles(directory=C.FRONTEND_DIR, html=True), name="frontend")

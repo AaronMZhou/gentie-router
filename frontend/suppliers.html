@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Supplier bids · Gen-tie Router</title>
+  <link rel="icon" href="data:,">
+  <script>
+    (function () {
+      var d = document.documentElement, t;
+      try { t = localStorage.getItem("gentie.theme"); } catch (e) {}
+      if (t !== "dark" && t !== "light") t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      d.dataset.theme = t;
+    })();
+  </script>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500&family=Geist:wght@300;400;500&display=swap">
+  <link rel="stylesheet" href="styles/tokens.css">
+  <link rel="stylesheet" href="styles/components.css">
+  <link rel="stylesheet" href="styles/features.css">
+  <script src="config.js"></script>
+</head>
+<body>
+  <nav class="nav-top">
+    <div class="logo"><a class="logo" href="index.html"><i></i>Gen-tie Router</a><span class="mono-label crumb"><a href="dashboard.html">/ Projects</a></span></div>
+    <div class="actions"><button class="theme-toggle" type="button"></button></div>
+  </nav>
+  <main class="bidpage">
+    <nav class="crumbs">
+      <a id="back" href="dashboard.html">← Back to route</a>
+      <span class="muted">Gen-tie Router · Materials &amp; procurement</span>
+    </nav>
+
+    <header class="bidhead">
+      <div>
+        <h1 id="itemName">Supplier bids</h1>
+        <div id="itemMeta" class="muted">Loading bids…</div>
+      </div>
+      <span class="badge warn">MOCK BIDS</span>
+    </header>
+    <div id="itemNote" class="note muted small" hidden></div>
+    <div id="error" class="note warn" hidden></div>
+
+    <section id="picks" class="picks" hidden></section>
+
+    <section id="bidsSec" class="card" hidden>
+      <div class="cardhead">
+        <h2>Bids received <span id="bidCount" class="muted"></span></h2>
+        <div class="bidctl">
+          <label>Sort by
+            <select id="sort">
+              <option value="score">Best value</option>
+              <option value="total_usd">Lowest total</option>
+              <option value="delivery_week">Fastest delivery</option>
+              <option value="on_time_pct">On-time record</option>
+            </select>
+          </label>
+          <label class="chk"><input type="checkbox" id="onlyOnTime"> Meets need-by only</label>
+          <label class="chk"><input type="checkbox" id="onlySpec" checked> Meets spec only</label>
+        </div>
+      </div>
+      <div class="tablewrap">
+        <table class="bids">
+          <thead>
+            <tr>
+              <th class="c"><span class="sr">Compare</span></th>
+              <th>Supplier</th><th>Score</th><th>Total bid</th><th>Unit price</th><th>Delivery</th>
+              <th>From stock</th><th>On-time record</th><th>Warranty</th><th>Payment terms</th>
+            </tr>
+          </thead>
+          <tbody id="bidRows"></tbody>
+        </table>
+      </div>
+      <div id="emptyNote" class="note muted" hidden>No bids match these filters.</div>
+    </section>
+
+    <section id="cmpSec" class="card" hidden>
+      <div class="cardhead">
+        <h2>Side-by-side comparison</h2>
+        <span id="cmpHint" class="muted small">Tick up to 3 bids in the table to compare them.</span>
+      </div>
+      <div id="cmpGrid" class="cmpgrid"></div>
+    </section>
+
+    <p id="footNote" class="muted small"></p>
+  </main>
+
+  <script type="module">import { initThemeToggle } from "./js/theme.js"; initThemeToggle(document.querySelector(".theme-toggle"));</script>
+  <script src="suppliers.js"></script>
+</body>
+</html>

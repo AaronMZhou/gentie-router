@@ -7,3 +7,4 @@ data/projects.db-*
 # contains your Cesium ion token - see frontend/config.example.js
 frontend/config.js
 loadtest/.locust/
+backend/weather/.cache.sqlite

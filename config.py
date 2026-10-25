@@ -186,3 +186,10 @@ PARCEL_MIN_KM2 = 0.004       # ~1 acre
 PARCEL_MAX_KM2 = 0.65        # ~160 acres (open ranchland)
 SYNTHETIC_PARCELS_PER_KM = 2.0
 MIN_ROW_SEGMENT_M = 60.0     # landholder runs shorter than this are rasterization slivers -> merged
+
+# --------------------------------------------------------------------------
+# Inventory / procurement simulation (backend/inventory.py)
+# --------------------------------------------------------------------------
+INVENTORY_CATALOG = DATA_DIR / "inventory" / "catalog.json"
+LONG_LEAD_WEEKS = 40         # catalog items whose typical (p50) lead time is at least this are "long-lead"
+INVENTORY_TRIALS = 600       # Monte Carlo trials per assessment
