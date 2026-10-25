@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Route · Gen-tie Router</title>
+  <link rel="icon" href="data:,">
+  <script>
+    (function () {
+      var d = document.documentElement, t;
+      try { t = localStorage.getItem("gentie.theme"); } catch (e) {}
+      if (t !== "dark" && t !== "light") t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      d.dataset.theme = t;
+      window.addEventListener("error", function (e) { d.dataset.errors = (d.dataset.errors || "") + e.message + "|"; });
+      window.addEventListener("unhandledrejection", function (e) { d.dataset.errors = (d.dataset.errors || "") + (e.reason && e.reason.message || String(e.reason)) + "|"; });
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500&family=Geist:wght@300;400;500&display=swap">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.123.0/Build/Cesium/Widgets/widgets.css">
+  <link rel="stylesheet" href="styles/tokens.css">
+  <link rel="stylesheet" href="styles/components.css">
+  <script src="https://cdn.jsdelivr.net/npm/cesium@1.123.0/Build/Cesium/Cesium.js"></script>
+  <script src="config.js"></script>
+</head>
+<body>
+  <nav class="nav-top">
+    <!-- crumb sits beside the logo link, not inside it: its parts are links too -->
+    <div class="logo"><a class="logo" href="landing.html"><i></i>Gen-tie Router</a><span class="mono-label crumb" id="crumb"><a href="dashboard.html">/ Projects</a></span></div>
+    <div class="actions">
+      <button class="btn" type="button" id="export" disabled>Export packet</button>
+      <button class="btn btn--fill" type="button" id="mark" disabled>Mark for filing</button>
+      <button class="theme-toggle" type="button"></button>
+    </div>
+  </nav>
+  <main id="app" aria-live="polite"></main>
+  <div class="toast" role="status" hidden></div>
+  <script type="module" src="js/pages/route.js"></script>
+</body>
+</html>

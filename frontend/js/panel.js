@@ -133,7 +133,8 @@ function renderProfile(svg, endEl, profile) {
   // terrain fill
   const area = document.createElementNS(ns, "path");
   area.setAttribute("d", `M0 ${H} ` + profile.map((q) => `L${X(q[0]).toFixed(1)} ${Y(q[1]).toFixed(1)}`).join(" ") + ` L${W} ${H} Z`);
-  area.setAttribute("fill", "rgba(255,255,255,0.08)");
+  area.setAttribute("fill", "currentColor"); // follows the theme text colour
+  area.setAttribute("fill-opacity", "0.08");
   svg.appendChild(area);
   // line coloured by mode
   for (let i = 1; i < profile.length; i++) {
