@@ -147,3 +147,7 @@ From the gap analysis against the HackOhio project outline.
 1. **Pick the underground cost for the demo** (or add a slider). Right now the "picks overhead or underground per segment" headline rarely shows underground at $10M/mi.
 2. **Replace the placeholder estimates** with a backend `estimates` field (real permit durations first: the calendar already renders whatever it gets).
 3. Small frontend polish: roads toggle, show `row.segments`.
+
+cd ~/CodeBases/HackOhio2026-Transmission/gentie-router
+source .venv/bin/activate
+python -m uvicorn backend.app:app --port 8000
