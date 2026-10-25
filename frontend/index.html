@@ -3,135 +3,76 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Gen-tie Router</title>
+  <title>Gen-tie Router · Know the whole line before you file</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.123.0/Build/Cesium/Widgets/widgets.css">
-  <link rel="stylesheet" href="style.css">
-  <script src="https://cdn.jsdelivr.net/npm/cesium@1.123.0/Build/Cesium/Cesium.js"></script>
-  <script src="config.js"></script>
+  <script>
+    (function () {
+      var d = document.documentElement, t;
+      try { t = localStorage.getItem("gentie.theme"); } catch (e) {}
+      if (t !== "dark" && t !== "light") t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      d.dataset.theme = t;
+      window.addEventListener("error", function (e) { d.dataset.errors = (d.dataset.errors || "") + e.message + "|"; });
+      window.addEventListener("unhandledrejection", function (e) { d.dataset.errors = (d.dataset.errors || "") + (e.reason && e.reason.message || String(e.reason)) + "|"; });
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500&family=Geist:wght@300;400;500&display=swap">
+  <link rel="stylesheet" href="styles/tokens.css">
+  <link rel="stylesheet" href="styles/components.css">
 </head>
 <body>
-  <div id="cesiumContainer"></div>
-
-  <aside id="panel">
-    <header>
-      <h1>Gen-tie Router</h1>
-      <div id="region" class="muted">Loading region…</div>
-      <div id="dataBadge" class="badge">…</div>
-      <div class="viewswitch" role="group" aria-label="View mode">
-        <button id="vTop">Top View</button>
-        <button id="vEnh" class="on">Enhanced</button>
+  <nav class="nav-top">
+    <a class="logo" href="index.html"><i></i>Gen-tie Router</a>
+    <div class="navl mono-label"><a href="#how">How it works</a><a href="#data">Data</a></div>
+    <div class="actions"><a class="btn" href="dashboard.html">Sign in →</a><button class="theme-toggle" type="button"></button></div>
+  </nav>
+  <main>
+    <div class="hero grid-bg">
+      <svg viewBox="0 0 1240 640" style="position:absolute;inset:0;width:100%;height:100%;opacity:.9" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        <defs>
+          <filter id="glow"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        </defs>
+        <g fill="none" stroke="var(--contour)" stroke-width="1" transform="translate(150 -20)">
+          <path d="M-50 120 C150 60 300 160 480 110 S800 40 1150 140"/>
+          <path d="M-50 180 C160 120 310 230 500 170 S820 100 1150 210"/>
+          <path d="M-50 250 C140 200 330 300 520 240 S830 170 1150 280"/>
+          <path d="M-50 330 C170 270 340 380 540 310 S840 250 1150 350"/>
+          <path d="M-50 410 C180 350 360 460 560 390 S850 330 1150 430"/>
+          <path d="M-50 490 C190 430 370 540 580 470 S860 410 1150 510"/>
+          <path d="M-50 570 C200 510 380 620 600 550 S870 490 1150 590"/>
+          <path d="M-50 650 C210 590 390 700 620 630 S880 570 1150 670"/>
+          <ellipse cx="700" cy="230" rx="90" ry="50"/><ellipse cx="700" cy="230" rx="55" ry="28"/><ellipse cx="700" cy="230" rx="22" ry="11"/>
+          <ellipse cx="300" cy="470" rx="110" ry="60"/><ellipse cx="300" cy="470" rx="64" ry="34"/>
+        </g>
+        <path d="M640 520 C760 440 820 360 900 300 S1060 180 1180 120" fill="none" stroke="var(--acc)" stroke-width="2" filter="url(#glow)"/>
+        <path d="M640 520 C760 440 820 360 900 300 S1060 180 1180 120" fill="none" stroke="var(--text)" stroke-width="2" class="flow"/>
+        <path d="M640 520 C700 400 860 420 960 330 S1100 260 1180 120" fill="none" stroke="var(--acc2)" stroke-width="1.5" stroke-dasharray="6 6" opacity=".7"/>
+        <path d="M640 520 C820 520 980 420 1060 300 S1150 180 1180 120" fill="none" stroke="var(--muted)" stroke-width="1" opacity=".5"/>
+        <circle cx="640" cy="520" r="6" fill="var(--ok)" filter="url(#glow)"/><circle cx="640" cy="520" r="18" fill="none" stroke="var(--ok)" class="pulse"/>
+        <circle cx="1180" cy="120" r="6" fill="var(--acc)" filter="url(#glow)"/>
+        <text x="656" y="548" fill="var(--muted)" style="font:11px 'Geist Mono';letter-spacing:.14em">RAMONA SOLAR · 200 MW</text>
+        <text x="1040" y="104" fill="var(--muted)" style="font:11px 'Geist Mono';letter-spacing:.14em">CREELMAN SUB</text>
+      </svg>
+      <div class="wrap" style="position:relative;padding-top:110px">
+        <div class="mono-label"><span class="dot"></span>&nbsp; Pre-approval route intelligence</div>
+        <h1 class="display display--hero" style="margin-top:22px">Know the <span class="it acc">whole line</span><br>before you file.</h1>
+        <p class="lead" style="max-width:560px;margin:24px 0 32px">Draft transmission routes and see what each one really costs: permits, maintenance, materials, build calendar. All of it before a single filing goes to the feds.</p>
+        <div style="display:flex;gap:12px;flex-wrap:wrap"><a class="btn btn--fill" href="dashboard.html">Start a project →</a><a class="btn" href="route.html?demo=1">Watch a route get built</a></div>
       </div>
-      <div id="exagRow" class="exagrow">
-        <label for="exag">Terrain height</label>
-        <select id="exag">
-          <option value="1">1× (true scale)</option>
-          <option value="1.5" selected>1.5×</option>
-          <option value="2">2×</option>
-          <option value="3">3×</option>
-        </select>
-      </div>
-    </header>
-
-    <section id="steps">
-      <div class="step" id="step1"><span class="dot start"></span><div><b>1.</b> Click the <b>project site</b></div></div>
-      <div class="step" id="step2"><span class="dot end"></span><div><b>2.</b> Click a <b>substation</b> <span class="muted">(or any point)</span></div></div>
-      <div id="status" class="status"></div>
-      <div class="buttons">
-        <button id="btnReset">Reset</button>
-        <button id="btnDemo" class="primary">Load demo route</button>
-      </div>
-      <div class="buttons" style="margin-top:8px">
-        <button id="btnValidate">Compare to real line</button>
-      </div>
-    </section>
-
-    <section id="layers">
-      <h2>Overlays</h2>
-      <label><input type="checkbox" id="tglFire"> Wildfire hazard (USFS WHP) <span class="sw fire"></span></label>
-      <label><input type="checkbox" id="tglHftd"> HFTD / FHSZ tiers <span class="sw hftd"></span></label>
-      <label><input type="checkbox" id="tglProtected"> Protected land <span class="sw prot"></span></label>
-      <label><input type="checkbox" id="tglTribal"> Tribal land <span class="sw tribal"></span></label>
-      <label><input type="checkbox" id="tglLines" checked> Existing power lines (69 / 138 kV) <span class="sw line"></span></label>
-      <label><input type="checkbox" id="tglBaseline" checked> Straight-line baseline <span class="sw base"></span></label>
-      <label><input type="checkbox" id="tglContours"> Elevation contours (100 m) <span class="sw contour"></span></label>
-      <label><input type="checkbox" id="tglCities" checked> Cities &amp; towns <span class="sw city"></span></label>
-      <label><input type="checkbox" id="tglBorders" checked> Country / state borders <span class="sw border"></span></label>
-    </section>
-
-    <section id="validation" hidden>
-      <h2>Validation vs. real line</h2>
-      <div id="valLabel" class="muted"></div>
-      <table class="cmp">
-        <thead><tr><th></th><th>Mean dist</th><th>&le;500 m</th><th>Length</th></tr></thead>
-        <tbody id="valRows"></tbody>
-      </table>
-      <div id="valNote" class="note"></div>
-    </section>
-
-    <section id="results" hidden>
-      <h2>Least-cost route <span id="demoTag" class="tag" hidden>DEMO (precomputed)</span></h2>
-      <div class="headline">
-        <div><div class="big" id="rCost">–</div><div class="muted">est. cost</div></div>
-        <div><div class="big" id="rKm">–</div><div class="muted">length</div></div>
-      </div>
-      <button id="btnFly" class="fly">▶ Fly along route</button>
-      <div id="demoStory" class="story" hidden></div>
-      <div class="grid">
-        <div><span class="k">Overhead</span><span class="v" id="rOh">–</span></div>
-        <div><span class="k">Underground</span><span class="v" id="rUg">–</span></div>
-        <div><span class="k">High wildfire hazard</span><span class="v" id="rRisk">–</span></div>
-        <div><span class="k">OH in high hazard</span><span class="v" id="rOhRisk">–</span></div>
-        <div><span class="k">HFTD Tier 2/3</span><span class="v" id="rFire">–</span></div>
-        <div><span class="k">Mean hazard (0–1)</span><span class="v" id="rMeanRisk">–</span></div>
-        <div><span class="k">Protected land</span><span class="v" id="rProt">–</span></div>
-        <div><span class="k">OH/UG transitions</span><span class="v" id="rTrans">–</span></div>
-        <div><span class="k">Tribal land</span><span class="v" id="rTribal">–</span></div>
-      </div>
-      <div id="tribalNote" class="note warn" hidden></div>
-
-      <h3>Right-of-way &amp; permitting</h3>
-      <div class="grid">
-        <div><span class="k">Landholder negotiations</span><span class="v" id="rLandholders">–</span></div>
-        <div><span class="k">Structures</span><span class="v" id="rStructures">–</span></div>
-      </div>
-      <ul id="triggers" class="triggers"></ul>
-
-      <h3>vs. straight overhead line</h3>
-      <table class="cmp">
-        <thead><tr><th></th><th>Route</th><th>Straight</th></tr></thead>
-        <tbody>
-          <tr><td>Length</td><td id="cLenR"></td><td id="cLenB"></td></tr>
-          <tr><td>Cost</td><td id="cCostR"></td><td id="cCostB"></td></tr>
-          <tr><td>Protected</td><td id="cProtR"></td><td id="cProtB"></td></tr>
-          <tr><td>Tribal land</td><td id="cTribR"></td><td id="cTribB"></td></tr>
-          <tr><td>OH in high hazard</td><td id="cFireR"></td><td id="cFireB"></td></tr>
-          <tr><td>Mean hazard</td><td id="cRiskR"></td><td id="cRiskB"></td></tr>
-        </tbody>
-      </table>
-      <div id="cmpNote" class="note"></div>
-
-      <h3>Elevation profile</h3>
-      <svg id="profile" viewBox="0 0 300 90" preserveAspectRatio="none"></svg>
-      <div class="profile-axis muted"><span>0 km</span><span id="profEnd"></span></div>
-
-      <h3>Segments</h3>
-      <ol id="segments"></ol>
-    </section>
-
-    <section class="legend">
-      <div><span class="sw oh"></span> Overhead (towers every ~300 m)</div>
-      <div><span class="sw ug"></span> Underground</div>
-      <div><span class="sw real"></span> Real existing line (validation)</div>
-      <p class="muted small">Enhanced view: terrain height adjustable (default 1.5×), 3D towers and conductors appear when zoomed in (&lt; 9 km).<br>
-        Left-drag pan · Right-drag look around · Wheel zoom · Ctrl/middle-drag tilt</p>
-      <p class="muted small">Costs are rough planning assumptions ($2M/mi overhead, $10M/mi underground,
-        scaled by slope, wildfire tier, corridors &amp; land status). Not an engineering estimate.</p>
-    </section>
-  </aside>
-  <div id="toast" hidden></div>
-  <div id="readout" hidden></div>
-
-  <script src="app.js"></script>
+    </div>
+    <div class="stats" id="data">
+      <div><div class="mono-label">Cost per mile, decided early</div><div class="n">$2.1M</div></div>
+      <div><div class="mono-label">Permit triggers checked</div><div class="n">7</div></div>
+      <div><div class="mono-label">Route solve time</div><div class="n it" id="stat-solve">~9 ms</div></div>
+      <div><div class="mono-label">Data layers, all real</div><div class="n" id="stat-layers">12</div></div>
+    </div>
+    <div class="steps" id="how">
+      <div><div class="mono-label">01 / Draw</div><h3>Pick the <span class="it">endpoints</span></h3><p>Drop a generation site and a substation. We solve the least-cost path across terrain, fire risk, protected and tribal land.</p></div>
+      <div><div class="mono-label">02 / Compare</div><h3>Weigh the <span class="it">options</span></h3><p>Every project holds several candidate routes. See upfront cost, upkeep, legal steps and timeline side by side.</p></div>
+      <div><div class="mono-label">03 / File</div><h3>Submit the <span class="it">right one</span></h3><p>Go to federal review with the route that holds up, plus the inventory and calendar to back it.</p></div>
+    </div>
+  </main>
+  <script type="module" src="js/pages/landing.js"></script>
 </body>
 </html>

@@ -106,7 +106,7 @@ async function load() {
   } catch (e) {
     box.innerHTML = `<div class="empty-state"><div class="display display--3">Backend <span class="it">unreachable</span></div>
       <p class="muted">Couldn't load your projects (${esc(e.message)}). Is the server running?</p>
-      <button class="btn" type="button" data-retry>Retry</button></div>`;
+      <button class="btn" type="button" data-retry>Retry</button> <a class="btn" href="route.html?demo=1">Open the offline demo</a></div>`;
   }
 }
 

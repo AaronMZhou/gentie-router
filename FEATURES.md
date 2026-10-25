@@ -1,6 +1,6 @@
 # Feature Status
 
-Snapshot of every feature in Gen-tie Router and how finished it is. Last checked 2026-10-24 against commit `d7b994e`.
+Snapshot of every feature in Gen-tie Router and how finished it is. Last checked 2026-10-25 after the multi-page planner cut-over (`feature/multipage-planner`, Task 11).
 
 **Legend**
 
@@ -11,7 +11,9 @@ Snapshot of every feature in Gen-tie Router and how finished it is. Last checked
 | ⚠️ Works, weak result | Code is correct, but the output isn't convincing yet |
 | ⬜ Not started | Referenced or implied, but no code exists |
 
-**Verification:** `python -m backend.test_route` → ALL CHECKS PASSED. `python -m backend.test_api` → ALL API CHECKS PASSED (both re-run on `d7b994e`). An earlier headless-Chromium run exercised click-to-route, overlays, demo route, validation and the out-of-region toast with no page errors. That run predates the 3D/view-mode commits, so those features (marked † below) are verified in code only.
+**Multi-page planner verification (2026-10-25):** `test_route`, `test_api`, `test_projects` and `estimates.test.mjs` pass, and `tools/smoke_pages.py` boots every page (seeded server, missing route id, and static-only `/` + `route.html?demo=1`) with no page errors. A headed-Chrome check confirmed 3D poles under the flowing line on the route page and three routes on the project page, in both themes.
+
+**Earlier verification:** `python -m backend.test_route` → ALL CHECKS PASSED. `python -m backend.test_api` → ALL API CHECKS PASSED (both re-run on `d7b994e`). An earlier headless-Chromium run exercised click-to-route, overlays, demo route, validation and the out-of-region toast with no page errors. That run predates the 3D/view-mode commits, so those features (marked † below) are verified in code only.
 
 ---
 
@@ -21,11 +23,11 @@ Snapshot of every feature in Gen-tie Router and how finished it is. Last checked
 |---|---|---|---|---|
 | Data pipeline | 8 | 1 | 0 | 0 |
 | Cost model & routing | 7 | 0 | 1 | 0 |
-| Route outputs (schema v1.1) | 6 | 1 | 0 | 1 |
-| API & performance | 5 | 1 | 0 | 0 |
-| Frontend | 16 | 4 | 0 | 0 |
+| Route outputs (schema v1.1) | 7 | 1 | 0 | 0 |
+| API & performance | 7 | 1 | 0 | 0 |
+| Frontend | 25 | 4 | 0 | 0 |
 | Validation | 1 | 0 | 1 | 0 |
-| HackOhio outline (planned) | 0 | 0 | 0 | 7 |
+| HackOhio outline (planned) | 0 | 2 | 0 | 5 |
 
 ---
 
@@ -67,7 +69,7 @@ Snapshot of every feature in Gen-tie Router and how finished it is. Last checked
 | `permitting_triggers` (CEQA, NEPA, tribal, protected, state, HFTD, encroachment) | ✅ Done | Flags only, no durations. |
 | Elevation profile (≤ 200 samples) | ✅ Done | |
 | Legacy v1.0 flat fields | 🔧 Needs tweaks | Kept for the frontend, which still reads them instead of the v1.1 groups. Migrate the frontend, then they can be dropped in 2.0. |
-| **Permitting timeline / durations** | ⬜ Not started | The README refers to "the timeline feature," but nothing implements it. See the deployment calendar in section 7. |
+| Strategy presets (`balanced`, `avoid_fire`, `cheapest`, `underground`) | ✅ Done | `POST /route` `preset`; omitted = balanced, byte-identical to before. Search on the preset grid, price on the balanced one. `test_api` 3b. |
 
 ## 4. API & performance (`backend/app.py`, `backend/worker.py`, `loadtest/`)
 
@@ -75,6 +77,8 @@ Snapshot of every feature in Gen-tie Router and how finished it is. Last checked
 |---|---|---|
 | `POST /route` with 400 on out-of-region and 422 on malformed input | ✅ Done | Verified by `test_api`. |
 | `GET /bounds`, `/overlays/{name}`, `/health`, `/stats` | ✅ Done | |
+| Project/route store (SQLite) + CRUD endpoints | ✅ Done | `GENTIE_DB` path; 400 on bad endpoints stores nothing; 404 on unknown ids. `test_projects`. |
+| Sample-project seed on an empty store | ✅ Done | Four projects with real routes; `GENTIE_NO_SEED=1` skips it. |
 | Process pool (default 8 workers) with grids loaded once per worker | ✅ Done | `/health` stays at ≤ 5 ms while all workers are busy. |
 | LRU response cache + single-flight for identical requests | ✅ Done | 20 identical concurrent requests → 1 compute. |
 | `GET /assumptions` | 🔧 Needs tweaks | The README says "every cost constant", but it omits `PROTECTED_IN_CORRIDOR_PENALTY`, `OUTSIDE_REGION_PENALTY`, `HIGH_FIRE_LEVEL`, `STRAIGHTEN_TOL` and the inventory constants. |
@@ -91,7 +95,7 @@ Snapshot of every feature in Gen-tie Router and how finished it is. Last checked
 | Right-of-way & permitting section | ✅ Done | |
 | Route vs straight-line comparison table + notes | ✅ Done | |
 | Elevation profile (SVG, coloured by mode) | ✅ Done | |
-| Demo mode: "Load demo route" works with no backend | ✅ Done | `demo_route.json` is on schema 1.1. |
+| Demo mode: `route.html?demo=1` works with no backend | ✅ Done | `demo_route.json` is on schema 1.1. Linked from the landing page and the dashboard's backend-down state. Smoke-tested with `--no-server`. |
 | "About this demo" explainer card | ✅ Done † | Says the route is hypothetical, with cost breakdown and reasoning. |
 | View modes: Enhanced (terrain ×1.5, sun/shadows, 3D poles + sagging conductors < 9 km) and Top View (flat, fast) | ✅ Done † | Choice is remembered; switching keeps the camera. |
 | ▶ Fly along route | ✅ Done † | 20–60 s fly-through; click or Esc stops it. |
@@ -102,7 +106,16 @@ Snapshot of every feature in Gen-tie Router and how finished it is. Last checked
 | Mouse controls (right-drag look-around, Ctrl/middle-drag tilt) | ✅ Done † | |
 | Overlay toggles (hazard, HFTD, protected, tribal, power lines, baseline) | 🔧 Needs tweaks | The backend serves a `roads` overlay, but there's no toggle for it. |
 | Panel depth vs API | 🔧 Needs tweaks | Not shown: `row.segments` (landholder-by-landholder list), `land.units_crossed`, `km_by_owner`, conductor/cable km. |
-| Cost legend text | 🔧 Needs tweaks | "$2M/mi overhead, $10M/mi underground" is hardcoded in `index.html`. It goes stale if `config.py` changes; read it from `/assumptions` instead. |
+| Cost-assumption note | ✅ Done | The route page reads it from `/assumptions`; the static text is only the offline/demo fallback. |
+| Landing page (`index.html`) | ✅ Done | Works with no backend; layer count from `/bounds` when available. |
+| Projects dashboard (`dashboard.html`): cards, thumbnails, KPIs, new-project modal | ✅ Done | Backend-down state with Retry. |
+| Project page (`project.html`): all routes on one map, card rail, add/rename/delete route, change endpoints, edit/delete project, validation | ✅ Done | |
+| Route page (`route.html`): 3D hero, fly-along with tower count, segment callout, costs, inventory, maintenance, permits, full analysis, export packet, mark for filing | ✅ Done | Missing id shows "not found" with a link back. |
+| Animated flowing line over the selected route | ✅ Done | Pauses when the tab is hidden; off under reduced motion. fps impact in the Task 5 commit. |
+| Light/dark theme (tokens, no flash, recolours the Cesium routes and HUDs live) | ✅ Done | `frontend/styles/STYLES.md` is the style guide; `styles/preview.html` shows every component. |
+| Placeholder estimates (`estimates.js`: maintenance, lifetime cost, lead times, permit durations, score) | 🔧 Needs tweaks | Constant rates, every value marked `est.`. Replaced as-is when the route JSON gains an `estimates` field. |
+| Page smoke test (`tools/smoke_pages.py`) | ✅ Done | Headless Chrome; boot contract `data-ready` / `data-errors`. Headless renders a black globe, so 3D visuals need a headed check. |
+| Legacy single-page tool (`app.js`, `style.css`, old `index.html`) | ✅ Done | Removed; every feature lives on the project or route page. |
 | Cesium ion token handling | 🔧 Needs tweaks | `config.js` is git-ignored (good), but the token is visible to anyone who loads the page. Restrict allowed URLs in the Cesium dashboard before deploying. |
 
 ## 6. Validation (`backend/validate.py`, "Compare to real line")
@@ -118,8 +131,8 @@ From the gap analysis against the HackOhio project outline.
 
 | Feature | Status | Notes |
 |---|---|---|
-| Deployment calendar / permitting timeline | ⬜ Not started | Natural first build: `permitting_triggers` already lists which reviews apply, so this only needs durations per trigger. |
-| Inventory availability (towers, cable, conductor) | ⬜ Not started | Quantities already exist in `inventory`; there's no supply data to compare them against. |
+| Deployment calendar / permitting timeline | 🔧 Placeholder | The route page draws a Gantt from `permitting_triggers` with placeholder durations from `estimates.js` (marked `est.`). Needs real per-trigger durations. |
+| Inventory availability (towers, cable, conductor) | 🔧 Placeholder | The route page shows placeholder lead times (`est.`) next to the real quantities; there's no supply data yet. |
 | Suppliers & staging yards | ⬜ Not started | |
 | Geoapify integration | ⬜ Not started | |
 | Open-Meteo weather integration | ⬜ Not started | |
@@ -131,6 +144,5 @@ From the gap analysis against the HackOhio project outline.
 ## Suggested next steps (priority order)
 
 1. **Pick the underground cost for the demo** (or add a slider). Right now the "picks overhead or underground per segment" headline rarely shows underground at $10M/mi.
-2. **Build the deployment calendar**, driven by `permitting_triggers`. It's the biggest outline gap and the API already has the inputs.
-3. **Click through the new 3D features (†) in a browser**: view switch, fly-along, contours.
-4. Small frontend polish: roads toggle, legend from `/assumptions`, show `row.segments`.
+2. **Replace the placeholder estimates** with a backend `estimates` field (real permit durations first: the calendar already renders whatever it gets).
+3. Small frontend polish: roads toggle, show `row.segments`.

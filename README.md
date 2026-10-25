@@ -1,6 +1,6 @@
 # Gen-tie Router
 
-Click a proposed renewable project site and a substation on a 3D terrain map. The app finds the least-cost route for a short gen-tie line between them, picks **overhead or underground for each segment**, and draws it in 3D with towers, a results panel and a straight-line baseline for comparison.
+A multi-page planner for short gen-tie lines. Create a project, click a proposed renewable project site and a substation on a 3D terrain map, and the app finds the least-cost route between them, picks **overhead or underground for each segment**, and draws it in 3D with towers and a straight-line baseline. Each project holds several candidate routes (one per strategy preset) to compare side by side, and each route has its own page with costs, inventory, maintenance, a deployment calendar, permits and the full route analysis.
 
 **Region:** San Diego County backcountry: Ramona, Santa Ysabel and Julian (bbox `-116.89, 32.94, -116.56, 33.21`, about 31 × 30 km). The terrain runs from about 215 m to 1,980 m. About 95% of the area is CPUC HFTD Tier 3, and it has a patchwork of preserves, state park, Cleveland NF and tribal land.
 
@@ -12,13 +12,21 @@ data/
 backend/
   cost_model.py          overhead / underground / combined cost grids
   router.py              least-cost path, OH/UG segmentation, stats, baseline
-  app.py                 FastAPI: POST /route, GET /bounds, overlays; also serves frontend/
+  app.py                 FastAPI: POST /route, GET /bounds, overlays, projects/routes; also serves frontend/
+  store.py, seed.py      SQLite project/route store + sample projects
   test_route.py          stage-2 smoke test (prints routes, writes demo route)
+  test_api.py, test_projects.py   API and project-store checks
 frontend/
-  index.html app.js style.css
+  index.html             landing page
+  dashboard.html         every project, KPIs, "+ Start a project"
+  project.html           one project: all its routes on the map, route cards, add/rename/delete, validation
+  route.html             one route: 3D hero with fly-along, costs, inventory, calendar, permits, full analysis
+  styles/                tokens.css, components.css, STYLES.md (the style guide), preview.html
+  js/                    map.js (Cesium), panel.js, api.js, estimates.js, theme.js, pages/*.js
   config.js              your Cesium ion token (git-ignored; see config.example.js)
-  demo_route.json        precomputed route for the "Load demo route" button
-config.py                region, grid, data URLs and every cost weight
+  demo_route.json        precomputed route for the offline demo (route.html?demo=1)
+tools/smoke_pages.py     headless-Chrome page smoke test
+config.py                region, grid, data URLs, every cost weight and the strategy presets
 ```
 
 ## Setup
@@ -71,24 +79,57 @@ python -m backend.test_route --save-demo  # also refreshes frontend/demo_route.j
 python -m uvicorn backend.app:app --port 8000
 ```
 
-Open **http://localhost:8000**. The backend serves the frontend too, so this one command runs everything.
+Open **http://localhost:8000**. The backend serves the frontend too, so this one command runs everything. On first start with an empty store it seeds four sample projects (Ramona Solar Gen-tie, Santa Ysabel Reinforcement, Julian Wind Interconnect, Boulder Creek BESS Tie) with real computed routes.
 
-- Click once to place the **project site**, then click again to place the **substation**. Clicking a purple substation marker snaps to it. The route appears in well under a second.
-- **View modes**, switched at the top of the panel; the app remembers your choice:
+| Environment variable | Effect |
+|---|---|
+| `GENTIE_DB` | project store path (default `data/projects.db`, git-ignored) |
+| `GENTIE_NO_SEED=1` | don't create the sample projects in an empty store |
+| `ROUTE_WORKERS`, `ROUTE_CACHE_SIZE` | routing worker processes (default 8; 0 = inline) and cached responses (default 1024) |
+
+**Pages**
+
+- **Landing** (`/`): what the tool does. "Start a project" goes to the dashboard; "Watch a route get built" opens the offline demo.
+- **Dashboard** (`dashboard.html`): a card per project with a route thumbnail and phase, plus KPIs. **+ Start a project** asks for a name, voltage and phase, then opens the project page in pick mode.
+- **Project** (`project.html?id=…`): every candidate route on one Cesium map, with a card rail beside it. Click once to place the **project site**, then again to place the **substation**; clicking a purple substation marker snaps to it, and a click outside the dashed study region shows a toast. **+ Add route** computes another route with a strategy preset; cards can be renamed or deleted; **Change endpoints** re-picks both points and recomputes every route; **Project ⋯** edits the name, phase and filing target or deletes the project. The **Layers · view** HUD has the view switch, terrain height, every overlay toggle and **Compare to real line**.
+- **Route** (`route.html?id=…`): a 3D hero with the flowing route line, **▶ Fly along**, a layers HUD, the data badge (amber when any layer is synthetic) and a hover/click segment callout; then costs, inventory, maintenance, deployment calendar, permits & legal, and the full route analysis (every results metric, right-of-way, vs-straight table, elevation profile, segments, the cost-assumption note from `/assumptions`, camera help). **Export packet** downloads the route + estimate as JSON; **Mark for filing** sets the project phase to ready.
+- **Demo** (`route.html?demo=1`): the route page on `demo_route.json` with no API calls, plus the "About this demo" card.
+
+Every page has a light/dark toggle (remembered; defaults to the OS setting). Maintenance, lifetime cost, calendar, lead times and permit durations come from `frontend/js/estimates.js` and are **placeholders**, marked `est.` wherever they appear; the deployment calendar is one of them. The upfront total, inventory, triggers and every route-analysis metric are real model output.
+
+**Strategy presets** (`PRESETS` in `config.py`: weight overrides for the path search; every route is priced on the balanced cost model):
+
+| Preset | Label | What changes |
+|---|---|---|
+| `balanced` | Balanced | the default cost model; `POST /route` without `preset` uses it |
+| `avoid_fire` | Avoid fire | overhead wildfire multiplier up to ×10, HFTD Tier 3 ×5 |
+| `cheapest` | Direct | lighter fire and managed-land weighting; protected and tribal penalties kept |
+| `underground` | Prefer underground | searches as if burial cost ~$4M/mi |
+
+**Map controls** (project and route pages):
+
+- **View modes**, switched in the map's layers HUD; the app remembers your choice:
   - **Enhanced** (default): terrain exaggerated 1.5× (the **Terrain height** dropdown changes it: 1× true scale, 1.5×, 2× or 3×; the choice is remembered), early-afternoon sun with shading and shadows, and a low oblique camera. Within about 9 km, overhead lines appear as **3D poles with crossarms and three sagging conductors**, with the orange trace running tower to tower beneath them.
   - **Top View**: the basic, fastest version. Flat ground (no 3D terrain), satellite imagery, flat tower icons, no lighting or shadows. Useful for picking points.
   - Switching views keeps the camera where it is; only the rendering changes.
-- **▶ Fly along route** flies the camera along the line in 20–60 s. Click or press Esc to stop.
+- **▶ Fly along** (route page) flies the camera along the line in 20–60 s, counting towers as it passes them. Click or press Esc to stop.
 - **Performance:** render settings are fixed per view, with nothing switching while you drag. An earlier version lowered quality during camera moves, and that made brightness, shadows and terrain detail flicker. Enhanced renders at CSS-pixel resolution with FXAA (not device resolution with 4× MSAA) and keeps HDR, shadows and full terrain detail. While panning on an Intel UHD integrated GPU at 2× display scaling, that's about 63 fps, against 12 fps at device resolution. When nothing changes the app renders no frames at all (Cesium `requestRenderMode`), so the GPU idles.
-- **Load demo route** also shows an "About this demo" card. It explains that the route is a hypothetical example (not a real project) and gives the estimated cost with a breakdown, why the route goes where it does, and what it would take.
+- The demo route page also shows an "About this demo" card. It explains that the route is a hypothetical example (not a real project) and gives the estimated cost with a breakdown, why the route goes where it does, and what it would take.
 - **Mouse:** left-drag pans, **right-drag looks around** from where you are, the wheel zooms, Ctrl- or middle-drag tilts. Hovering shows the elevation under the cursor.
-- Overhead segments are solid orange, underground segments are dashed cyan, and the straight baseline is a faint white line. The elevation profile shows total climb and descent.
-- Toggles: wildfire hazard (USFS WHP, draped image), HFTD/FHSZ tiers, protected land, tribal land, existing power lines, baseline, 100 m elevation contours (off by default), cities & towns, and country/state borders. City labels appear by size as you zoom in: metros (LA, San Diego, Tijuana, Phoenix) always, cities like Escondido and El Cajon within 250 km, and towns like Ramona and Julian within 60 km. **Reset** (or Esc) clears the route.
+- Route colours come from the theme tokens (see `frontend/styles/STYLES.md`): overhead is solid, underground dashed, other candidate routes on the project page are dimmer, and the straight baseline is a faint line. The elevation profile shows total climb and descent.
+- Toggles: wildfire hazard (USFS WHP, draped image), HFTD/FHSZ tiers, protected land, tribal land, existing power lines, baseline, 100 m elevation contours (off by default), cities & towns, and country/state borders. City labels appear by size as you zoom in: metros (LA, San Diego, Tijuana, Phoenix) always, cities like Escondido and El Cajon within 250 km, and towns like Ramona and Julian within 60 km.
 
-**Demo safety:** **Load demo route** reads `frontend/demo_route.json` and needs no backend. If the backend dies, serve just the static files and the demo still works:
+**Demo safety:** `route.html?demo=1` reads `frontend/demo_route.json` and needs no backend. If the backend dies, serve just the static files: the landing page and the demo still work, and the dashboard, project and route pages show a "Backend unreachable" state with a Retry button (the dashboard's also links to the demo):
 
 ```bash
-python -m http.server 8100 --directory frontend   # then open http://localhost:8100
+python -m http.server 8100 --directory frontend   # then open http://localhost:8100/route.html?demo=1
+```
+
+Page smoke test (headless Chrome; starts its own server on :8767 with a temp seeded DB):
+
+```bash
+python tools/smoke_pages.py / /dashboard.html "/project.html?id=1" "/route.html?id=1"
+python tools/smoke_pages.py --no-server / "/route.html?demo=1"   # static files only, no API
 ```
 
 To serve the frontend separately from the API, set `API_BASE: "http://localhost:8000"` in `frontend/config.js` (CORS is open).
@@ -125,18 +166,36 @@ Interactive docs: `http://localhost:8000/docs`. Other endpoints:
 
 - `GET /bounds`: region bbox, centre, grid, data provenance, `synthetic_layers`
 - `GET /overlays/{name}`: `firerisk` (PNG over the bbox), plus `fire`, `protected`, `tribal`, `powerlines`, `roads` and `substations` (GeoJSON)
-- `GET /assumptions`: every cost constant in use
-- `GET /health`
+- `GET /assumptions`: the main cost constants, plus `PRESETS` (`{key: {label, blurb}}`)
+- `GET /health`, `GET /stats`
+
+### Projects and routes
+
+Stored in SQLite (`GENTIE_DB`, default `data/projects.db`). Phases: `drafting | comparing | permit-risk | ready`.
+
+| Endpoint | Body | Returns |
+|---|---|---|
+| `GET /projects` | | every project with route summaries (no full GeoJSON) and small simplified geometries for thumbnails |
+| `POST /projects` | `{name, voltage_kv, phase, filing_target?}` | the new project (201) |
+| `GET /projects/{id}` | | the project with its route summaries |
+| `PATCH /projects/{id}` | any of `name, voltage_kv, phase, filing_target, start_lonlat, end_lonlat` | the project. New endpoints recompute every route first, so a bad endpoint (400) changes nothing |
+| `DELETE /projects/{id}` | | 204; its routes go too |
+| `POST /projects/{id}/routes` | `{preset, start_lonlat?, end_lonlat?}` | `{route_summary, result}` (201). Computes and stores a route named after the preset; endpoints default to the project's, and passing them updates the project |
+| `GET /routes/{id}` | | the stored route; `result` is the full `POST /route` response |
+| `PATCH /routes/{id}` | `{name}` | the route |
+| `DELETE /routes/{id}` | | 204 |
+
+Unknown ids return 404. Out-of-region or same-cell endpoints return 400 with a `detail` message and store nothing.
 
 ### `POST /route`, schema v1.1
 
 **Request**
 
 ```json
-{"start": [-116.69, 33.10], "end": [-116.85305, 33.01807]}
+{"start": [-116.69, 33.10], "end": [-116.85305, 33.01807], "preset": "balanced"}
 ```
 
-`start` and `end` are `[lon, lat]` in WGS84 and must be inside the region bbox, otherwise the API returns `400` with a `detail` message. A malformed body returns `422`.
+`start` and `end` are `[lon, lat]` in WGS84 and must be inside the region bbox, otherwise the API returns `400` with a `detail` message. `preset` is optional and defaults to `balanced`, which gives exactly the pre-preset result; an unknown preset also returns `400`. A malformed body returns `422`.
 
 **Response:** a GeoJSON `FeatureCollection` with a top-level `properties` object.
 
@@ -274,7 +333,7 @@ Routing uses `skimage.graph.route_through_array` (8-connected, geometric distanc
 ## Assumptions (read before quoting numbers)
 
 - **All dollar figures are order-of-magnitude placeholders** for a 69–138 kV single-circuit gen-tie. They are not engineering estimates. The fire multiplier on overhead lines stands in for hardening (covered conductor, fast-trip), PSPS exposure, vegetation management and ignition liability.
-- The baseline's dollar cost **excludes** the protected-land routing penalty, because that penalty is a routing deterrent, not a construction cost. The panel flags baselines that cross protected land as "likely unpermittable" instead.
+- The baseline's dollar cost **excludes** the protected-land routing penalty, because that penalty is a routing deterrent, not a construction cost. The route analysis flags baselines that cross protected land as "likely unpermittable" instead.
 - "Protected" (near-impassable) means PAD-US GAP 1–2 plus state parks and wilderness, matched by designation type. That catches Cuyamaca Rancho SP, which PAD-US lists as GAP 4. National Forest and BLM land (GAP 3) carry only a mild permitting multiplier.
 - Existing corridors are assumed shareable within 60 m of a power line and 30 m of a major road.
 
@@ -282,7 +341,7 @@ Routing uses `skimage.graph.route_through_array` (8-connected, geometric distanc
 
 - **Overhead vs underground is decided mostly by the underground cost assumption.** With continuous hazard, routes thread overhead through low-hazard grass and farm valleys. That cuts overhead line in high hazard by about 95% against the straight line, at the cost of routes about 1.3× longer. It only rarely buries the line. A sweep over 80 random routes found that at $10M/mi underground almost no route uses underground. At **$5M/mi**, 84% of routes include some underground, averaging 33% of their length. Change `UNDERGROUND_COST_PER_MILE` in `config.py` to explore this.
 - Wildfire Hazard Potential reflects 2020 fuels (LANDFIRE 2.2.0), so recent burn scars may score higher than their current fuel load warrants. The FHSZ SRA layer dates from 2007, and federal land gets its tier from HFTD only.
-- **Tribal land** (Barona, Santa Ysabel, Mesa Grande, Inaja and Cosmit, Capitan Grande) gets a ×10 routing penalty, so it is strongly avoided but not forbidden. It is **not** added to the dollar estimate. Any crossing is listed in `tribal_lands_crossed`, and the panel warns that it triggers tribal consultation (NHPA §106) and needs tribal consent for right-of-way (25 CFR 169). Allotted and fee land outside reservation boundaries isn't in PAD-US, so it isn't flagged.
+- **Tribal land** (Barona, Santa Ysabel, Mesa Grande, Inaja and Cosmit, Capitan Grande) gets a ×10 routing penalty, so it is strongly avoided but not forbidden. It is **not** added to the dollar estimate. Any crossing is listed in `tribal_lands_crossed`, and the route analysis warns that it triggers tribal consultation (NHPA §106) and needs tribal consent for right-of-way (25 CFR 169). Allotted and fee land outside reservation boundaries isn't in PAD-US, so it isn't flagged.
 - The optimizer prices each cell independently. Transition costs, minimum span lengths, angle structures and tower placement are applied **after** routing, so they don't influence the path itself.
 - Parcel count is reported but **not priced**, so the router can favour low-hazard valleys that are also the most subdivided (the demo route crosses ~108 estimated parcels). Also not modelled: habitat and waters, visual impact, geotech, existing-line capacity, access roads, line losses, the interconnection queue.
 - The 30 m grid with 8-connectivity gives stair-stepped paths. Lengths come from the simplified geometry, which is about 2–8% shorter than the raw grid path.
