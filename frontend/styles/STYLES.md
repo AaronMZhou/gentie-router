@@ -167,7 +167,7 @@ The dashboard skeleton swaps the top nav for the side nav:
 ```html
 <div class="dash">
   <aside class="side">
-    <a class="logo" href="index.html" style="margin-bottom:26px"><i></i>Gen-tie Router</a>
+    <a class="logo" href="index.html"><i></i>Gen-tie Router</a>
     <a class="is-active" href="dashboard.html" aria-current="page">Projects <span class="mono-label">4</span></a>
     <div style="flex:1"></div>
     <button class="theme-toggle" type="button"></button>
@@ -213,6 +213,11 @@ Every snippet is copy-paste ready. Live versions are in `preview.html`.
 ```
 
 ### Side nav (`.side`)
+
+Below 900 px the side nav becomes a compact top bar: the `.logo` link and the `.theme-toggle` stay
+visible, and the other links are hidden. Put the logo first and the toggle last (after the
+`flex:1` spacer) so both land in the bar, and don't set `margin-bottom` on the logo inline: the
+26 px gap comes from `.side a.logo` and is removed in the bar.
 
 ```html
 <aside class="side">
@@ -544,7 +549,7 @@ Code that sets `data-theme` itself must then fire
 ## 10. Smoke test
 
 ```
-python tools/smoke_pages.py /styles/preview.html /dashboard.html      # uvicorn on :8767, temp DB, no seed
+python tools/smoke_pages.py /styles/preview.html /dashboard.html      # uvicorn on :8767, temp DB, seeded (--no-seed: empty)
 python tools/smoke_pages.py "/route.html?demo=1" --no-server          # static files only, no API
 python tools/smoke_pages.py /styles/preview.html --eval 'document.querySelectorAll(".pcard").length > 0'
 ```

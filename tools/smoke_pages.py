@@ -1,11 +1,11 @@
 """Headless-Chrome page smoke test.
 
-    python tools/smoke_pages.py URL [URL ...] [--no-server] [--eval JS ...]
+    python tools/smoke_pages.py URL [URL ...] [--no-server] [--no-seed] [--eval JS ...]
 
 URL is a path like /dashboard.html (or a full http URL). Each page must follow the
 boot contract in frontend/styles/STYLES.md: <html data-ready="1"> once booted and no
 recorded data-errors. By default uvicorn serves the app on :8767 (ROUTE_WORKERS=0,
-temp DB, no seed). --no-server serves frontend/ with a static http.server on :8768,
+temp DB, seeded with the sample projects; --no-seed starts it empty). --no-server serves frontend/ with a static http.server on :8768,
 so there is no API at all.
 
 --eval JS (repeatable) is an expression evaluated in page global scope after
@@ -138,13 +138,14 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("urls", nargs="+")
     ap.add_argument("--no-server", action="store_true", help="static files only, no API")
+    ap.add_argument("--no-seed", action="store_true", help="start the API with an empty project store")
     ap.add_argument("--eval", action="append", default=[], metavar="JS", help="truthy check, repeatable")
     args = ap.parse_args()
 
     chrome = find_chrome()
     tmp = tempfile.mkdtemp(prefix="gentie-smoke-")
     log = os.path.join(tmp, "server.log")
-    env = dict(os.environ, ROUTE_WORKERS="0", GENTIE_NO_SEED="1", GENTIE_DB=os.path.join(tmp, "projects.db"))
+    env = dict(os.environ, ROUTE_WORKERS="0", GENTIE_NO_SEED="1" if args.no_seed else "0", GENTIE_DB=os.path.join(tmp, "projects.db"))
     if args.no_server:
         port = STATIC_PORT
         cmd = [sys.executable, "-m", "http.server", str(port), "--bind", "127.0.0.1", "--directory", str(ROOT / "frontend")]
