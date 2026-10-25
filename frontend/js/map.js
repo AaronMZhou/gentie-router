@@ -57,12 +57,13 @@ const TOWER_IMG = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(
     </g></svg>`);
 
 // Flowing line (the mockup's `.flow`): screen-space dashes, 4 px on / 14 px off, in dashColor (--text)
-// sliding along a soft-edged base line in color (--acc).  offset is in CSS pixels.
+// sliding along a soft-edged base line in color (--acc).  offset is in CSS pixels; gap > 0 dashes the
+// base line itself (gap px on, gap px off) - the underground look.
 const FLOW_PERIOD = 18, FLOW_SPEED = 0.033; // px per ms (mockup: 200 px per 6 s)
 Cesium.Material._materialCache.addMaterial("GentieFlow", {
   fabric: {
     type: "GentieFlow",
-    uniforms: { color: Cesium.Color.WHITE, dashColor: Cesium.Color.BLACK, offset: 0 },
+    uniforms: { color: Cesium.Color.WHITE, dashColor: Cesium.Color.BLACK, offset: 0, gap: 0 },
     source: `
       in float v_polylineAngle;
       czm_material czm_getMaterial(czm_materialInput materialInput) {
@@ -71,8 +72,10 @@ Cesium.Material._materialCache.addMaterial("GentieFlow", {
         float along = (mat2(c, s, -s, c) * gl_FragCoord.xy).x;
         float p = fract((along - offset * czm_pixelRatio) / (${FLOW_PERIOD}.0 * czm_pixelRatio));
         float core = 1.0 - abs(materialInput.st.t - 0.5) * 2.0; // 1 on the centre line, 0 at the edges
+        float base = (gap > 0.0 && fract(along / (2.0 * gap * czm_pixelRatio)) >= 0.5) ? 0.0 : 1.0;
         vec4 col = (p < ${4 / FLOW_PERIOD} && core > 0.55) ? dashColor
-                 : vec4(color.rgb, color.a * mix(0.3, 1.0, smoothstep(0.0, 0.6, core)));
+                 : vec4(color.rgb, base * color.a * mix(0.3, 1.0, smoothstep(0.0, 0.6, core)));
+        if (col.a < 0.005) discard;
         col = czm_gammaCorrect(col);
         m.emission = col.rgb;
         m.alpha = col.a;
@@ -117,6 +120,18 @@ export async function createMap(container, opts = {}) {
     infoBox: false, selectionIndicator: false,
   });
   const scene = viewer.scene, globe = scene.globe;
+  // Cesium catches render-loop errors (and shows its error panel), so they never reach the page's
+  // data-errors boot contract.  scene.renderError covers scene.render(); errors in the clock tick /
+  // entity update go straight to showErrorPanel, so that is wrapped too (seen: one entry per error).
+  const seenErrors = new WeakSet();
+  const recordError = (error) => {
+    if (error && typeof error === "object") { if (seenErrors.has(error)) return; seenErrors.add(error); }
+    const d = document.documentElement;
+    d.dataset.errors = (d.dataset.errors || "") + ((error && error.message) || String(error)) + "|";
+  };
+  scene.renderError.addEventListener((_, error) => recordError(error));
+  const showErrorPanel = viewer.cesiumWidget.showErrorPanel.bind(viewer.cesiumWidget);
+  viewer.cesiumWidget.showErrorPanel = (title, message, error) => { recordError(error ?? message ?? title); showErrorPanel(title, message, error); };
   globe.depthTestAgainstTerrain = true;
   viewer.screenSpaceEventHandler.removeInputAction(Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
   // resolves once real terrain heights can be sampled; Top View swaps in flat terrain, so keep
@@ -501,14 +516,17 @@ export async function createMap(container, opts = {}) {
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   let flowOn = true, flowTimer = 0, flowPhase = 0, flowT = 0;
   function syncFlow() {
-    const run = flowOn && selectedId !== null && !document.hidden && !reducedMotion.matches;
+    const sel = routes.get(selectedId); // every line of the selected route carries the flow material
+    const run = flowOn && !!sel && sel.ohLines.length + sel.ugLines.length > 0 && !document.hidden && !reducedMotion.matches;
     if (run && !flowTimer) { flowT = performance.now(); flowTimer = setInterval(() => scene.requestRender(), 33); }
     else if (!run && flowTimer) { clearInterval(flowTimer); flowTimer = 0; scene.requestRender(); }
   }
   document.addEventListener("visibilitychange", syncFlow);
   reducedMotion.addEventListener("change", syncFlow);
 
-  const flowMaterial = { // MaterialProperty; non-constant, so Cesium re-reads the uniforms every frame
+  // MaterialProperty; non-constant, so Cesium re-reads the uniforms every frame.  One instance per
+  // look (overhead solid, underground dashed) so each batches once; both share the phase.
+  const makeFlow = (gap) => ({
     definitionChanged: new Cesium.Event(), isConstant: false,
     // color must be a Property: Cesium's dynamic-material batch reads material.color.getValue()
     color: new Cesium.ConstantProperty(Cesium.Color.WHITE), dashColor: Cesium.Color.BLACK,
@@ -519,11 +537,13 @@ export async function createMap(container, opts = {}) {
         flowPhase = (flowPhase + (now - flowT) * FLOW_SPEED) % FLOW_PERIOD;
         flowT = now;
       }
-      result.color = this.color.getValue(time); result.dashColor = this.dashColor; result.offset = flowPhase;
+      result.color = this.color.getValue(time); result.dashColor = this.dashColor;
+      result.offset = flowPhase; result.gap = gap;
       return result;
     },
     equals(other) { return this === other; },
-  };
+  });
+  const flowOh = makeFlow(0), flowUg = makeFlow(7); // 7 on / 7 off = the old 14 px underground dash
 
   // Selected route = --route-1 (--acc); the others take --route-2..4 in insertion order.
   const routeSlot = (id) => id === selectedId ? 1 : 2 + [...routes.keys()].filter((o) => o !== selectedId).indexOf(id) % 3;
@@ -537,12 +557,12 @@ export async function createMap(container, opts = {}) {
     const dim = color.withAlpha(0.65);
     for (const ent of r.ohLines) {
       ent.polyline.width = sel ? 9 : 3;
-      ent.polyline.material = sel ? flowMaterial
+      ent.polyline.material = sel ? flowOh
         : dashed ? new Cesium.PolylineDashMaterialProperty({ color: dim, dashLength: 13, dashPattern: 0x01ff }) : dim;
     }
     for (const ent of r.ugLines) {
-      ent.polyline.width = sel ? 5 : 3;
-      ent.polyline.material = new Cesium.PolylineDashMaterialProperty({ color: sel ? color : dim, dashLength: 14 });
+      ent.polyline.width = sel ? 7 : 3;
+      ent.polyline.material = sel ? flowUg : new Cesium.PolylineDashMaterialProperty({ color: dim, dashLength: 14 });
     }
     const acc = cssColor("--acc");
     for (const ent of r.ds.top.entities.values) {
@@ -553,8 +573,7 @@ export async function createMap(container, opts = {}) {
 
   function paintAll() {
     const acc = cssColor("--acc");
-    flowMaterial.color.setValue(acc);
-    flowMaterial.dashColor = cssColor("--text");
+    for (const f of [flowOh, flowUg]) { f.color.setValue(acc); f.dashColor = cssColor("--text"); }
     for (const r of routes.values()) paintRoute(r);
     const r = routes.get(selectedId);
     if (r) for (const ent of r.ds.hardware.entities.values) if (ent.point) ent.point.color = acc;

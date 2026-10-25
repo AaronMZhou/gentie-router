@@ -472,14 +472,18 @@ Fixed, bottom centre. Show it by removing `hidden`; hide it again after a few se
 - **Route colours** come from `--route-1..4`, read with `cssVar()` and re-read on `onThemeChange`.
   The **selected** route is always `--route-1` (= `--acc`), full opacity, with the **flowing line**
   and tower dots. The others take `--route-2..4` in order at about 60–70 % opacity and thinner width.
-  The `--acc2` route is drawn dashed (`7 6`), as in the mockup. Underground sections stay dashed
-  (14 px) in the route's colour. In Cesium, `MapApi.routeColor(id)` returns the current colour.
+  The `--acc2` route is drawn dashed (`7 6`), as in the mockup. Underground sections are dashed
+  (7 on, 7 off) in the route's colour. In Cesium, `MapApi.routeColor(id)` returns the current colour.
 - **Flowing line:** a `--text`-coloured dash pattern (4 on, 14 off) moving along the selected route
   over a `--acc` base line. In SVG it's `class="flow"`. On Cesium it's the `GentieFlow` material in
-  `map.js` (screen-space dashes, time-driven offset) on the overhead trace: segment geometry in Top
-  View, tower to tower on the ground under the 3D poles in Enhanced. It runs only while the page is
-  visible, `prefers-reduced-motion` is off and `MapApi.setFlow(true)`; it keeps render-on-demand and
-  requests ~30 frames/s itself, so it doesn't cap camera moves. Paused, the dashes freeze in place.
+  `map.js` (screen-space dashes, time-driven offset) on every selected segment: overhead on a solid
+  base (segment geometry in Top View, tower to tower on the ground under the 3D poles in Enhanced),
+  underground on a dashed base (`gap` uniform). It runs only while the page is visible,
+  `prefers-reduced-motion` is off, `MapApi.setFlow(true)` and the selected route has a flow line; it
+  keeps render-on-demand and requests ~30 frames/s itself, so it doesn't cap camera moves. Paused,
+  the dashes freeze in place.
+- **Render errors:** `createMap` appends Cesium render-loop errors (`scene.renderError` and the
+  error panel) to `<html data-errors>`, so `tools/smoke_pages.py` fails on a crashed map.
 - **Tower dots:** small `--acc` points with a dark outline at every tower of the selected route, in
   both views. The Top View lattice glyphs also show for the selected route only.
 - **Endpoints:** the generation site is an `--ok` dot with a `.pulse` ring; the substation is an
