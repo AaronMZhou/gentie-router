@@ -21,10 +21,10 @@ export const RATES = {
   energize_weeks: 3,
 };
 export const VOLTAGE_SCALE = { 69: 0.8, 138: 1.0, 230: 1.35 };
-// [min, max] months by trigger code; unknown code -> DEFAULT_PERMIT_MONTHS
+// [min, max] months by trigger code (the codes backend/router.py emits); unknown code -> DEFAULT_PERMIT_MONTHS
 export const PERMIT_MONTHS = {
-  CEQA: [8, 14], NEPA: [12, 24], HFTD: [3, 6], CPUC: [12, 18],
-  PROTECTED: [12, 24], TRIBAL: [9, 18], FEDERAL: [10, 20], STATE: [6, 12],
+  CEQA: [8, 14], FEDERAL_ROW_NEPA: [12, 24], TRIBAL_CONSENT: [9, 18], PROTECTED_AREA: [12, 24],
+  STATE_LANDS: [6, 12], HFTD: [3, 6], ENCROACHMENT: [2, 4],
 };
 export const DEFAULT_PERMIT_MONTHS = [3, 6];
 

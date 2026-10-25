@@ -97,8 +97,9 @@ function page({ fc, route, project, demo }, est) {
   const maintRows = Object.entries(est.maintenance_breakdown).filter(([, v]) => v > 0);
 
   // calendar: whole years, labels evenly spaced so they line up with year boundaries
-  const cal = est.calendar;
-  const y0 = Number(cal[0].start.slice(0, 4)), yEnd = Number(cal.at(-1).end.slice(0, 4)) + 1;
+  const cal = est.calendar || [];
+  const first = cal[0]?.start ?? new Date().toISOString().slice(0, 10), last = cal.at(-1)?.end ?? first;
+  const y0 = Number(first.slice(0, 4)), yEnd = Number(last.slice(0, 4)) + 1;
   const step = Math.ceil((yEnd - y0) / 6);
   const yN = y0 + Math.ceil((yEnd - y0) / step) * step;
   const T0 = Date.UTC(y0, 0, 1), span = Date.UTC(yN, 0, 1) - T0;
@@ -183,14 +184,14 @@ function page({ fc, route, project, demo }, est) {
         ${invRows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("")}
         ${leads.map((l) => `<tr><td>${esc(l.item)} lead time</td><td>${l.weeks} wks${mk("Placeholder lead time")}</td></tr>`).join("")}
       </table>
-      <div class="risk" style="margin-top:14px">▲ ${esc(leads[0].item)} lead time ${leads[0].weeks} wks${mk("Placeholder lead time")}</div>
+      ${leads.length ? `<div class="risk" style="margin-top:14px">▲ ${esc(leads[0].item)} lead time ${leads[0].weeks} wks${mk("Placeholder lead time")}</div>` : ""}
     </div>
     <div class="cell sect" id="maintenance" style="grid-column:span 4"><div class="mono-label">Maintenance ${mk("Placeholder: $ per km and per tower, scaled by voltage")}</div>
-      <h6><span class="it">${money(est.maintenance_per_year)}</span> a year</h6>
+      <h6><span class="it">${money(est.maintenance_per_year)}</span>${mk()} a year</h6>
       <svg viewBox="0 0 300 110" class="spark" preserveAspectRatio="none" role="img" aria-label="Lifetime cost from ${money(est.upfront_total)} at year 0 to ${money(est.lifetime_cost_40yr)} at year 40">
         <path d="${spark} V110 H0Z" fill="var(--series-1)" opacity=".12"/><path d="${spark}" fill="none" stroke="var(--series-1)" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>
-      <div class="mono-label" style="display:flex;justify-content:space-between;margin:4px 0 8px"><span>Yr 0 · ${money(est.upfront_total)}</span><span>Yr 40 · ${money(est.lifetime_cost_40yr)}</span></div>
-      <table class="inv">${maintRows.map(([k, v]) => `<tr><td>${MAINT_LABELS[k] || esc(k)}</td><td>${fmtUsd(v)}/yr</td></tr>`).join("")}</table>
+      <div class="mono-label" style="display:flex;justify-content:space-between;margin:4px 0 8px"><span>Yr 0 · ${money(est.upfront_total)}</span><span>Yr 40 · ${money(est.lifetime_cost_40yr)}${mk()}</span></div>
+      <table class="inv">${maintRows.map(([k, v]) => `<tr><td>${MAINT_LABELS[k] || esc(k)}</td><td>${fmtUsd(v)}/yr${mk()}</td></tr>`).join("")}</table>
     </div>
     <div class="cell sect" id="calendar" style="grid-column:span 7"><div class="mono-label">Deployment calendar ${mk("Placeholder durations, driven by the real permit triggers")}</div>
       <h6>Energized by <span class="it acc2">${quarter(est.energize_date)}</span></h6>
@@ -312,11 +313,13 @@ function wireTabs() {
 // ------------------------------------------------------------------ map hero
 async function initMap(data) {
   const p = data.fc.properties;
-  let flying = false, map;
+  let map;
   const fail = (e) => map?.toast(`Map error: ${e?.message || e}`);
   try {
     map = await createMap($("map"), {
-      onFlyChange: (on) => { flying = on; $("fly").textContent = on ? "■ Stop" : "▶ Fly along"; },
+      panelOffset: 0, // no side panel here: centre the route in the hero
+      onFlyChange: (on) => { $("fly").textContent = on ? "■ Stop" : "▶ Fly along"; if (on) showSegment(null); },
+      onSegment: (info, pos) => showSegment(info, pos),
     });
   } catch (e) {
     $("terrainLabel").textContent = "3D map unavailable";
@@ -335,14 +338,7 @@ async function initMap(data) {
   map.setFlow?.(true);
 
   // layers
-  const towersOn = () => document.querySelector('[data-layer="towers"]').checked;
-  const applyTowers = () => {
-    if (map.setTowers) return map.setTowers(towersOn());
-    // shortcut: no map.js hook yet, so reach into the route's data sources (3D hardware + Top-view tower glyphs)
-    for (const ds of map.viewer.dataSources.getByName("hardware:main")) ds.show = towersOn() && map.getView() === "enhanced";
-    for (const ds of map.viewer.dataSources.getByName("top:main")) for (const e of ds.entities.values) if (e.billboard) e.show = towersOn();
-    map.viewer.scene.requestRender();
-  };
+  const applyTowers = () => map.setTowers(document.querySelector('[data-layer="towers"]').checked);
   for (const box of document.querySelectorAll("[data-layer]")) {
     const name = box.dataset.layer;
     if (name === "towers") { box.onchange = applyTowers; continue; }
@@ -363,9 +359,9 @@ async function initMap(data) {
     $("exag").value = String(map.getExaggeration());
   };
   for (const btn of document.querySelectorAll("[data-view]")) {
-    btn.onclick = () => map.setView(btn.dataset.view).then(() => { syncView(); applyTowers(); }).catch(fail);
+    btn.onclick = () => map.setView(btn.dataset.view).then(syncView).catch(fail);
   }
-  $("exag").onchange = (e) => map.setExaggeration(Number(e.target.value)).then(applyTowers).catch(fail);
+  $("exag").onchange = (e) => map.setExaggeration(Number(e.target.value)).catch(fail);
   syncView();
   $("layers").open = matchMedia("(min-width: 900px)").matches;
 
@@ -376,67 +372,23 @@ async function initMap(data) {
     $("flyCount").textContent = `Tower ${passed} / ${total} · mi ${mi(km)}`;
   });
 
-  wireSegments(map, data.fc, () => flying);
   try { await map.ready; } catch (e) { fail(e); }
   return map;
 }
 
-// Segment callout on hover (or pinned by click): nearest segment to the ground point under the cursor.
-// shortcut: geometric nearest-segment pick in page code; swap for a map.js onSegmentHover hook when one exists.
-function wireSegments(map, fc, isFlying) {
-  const viewer = map.viewer, scene = viewer.scene, el = $("segCallout");
-  const segs = fc.features.filter((f) => f.properties.kind === "segment");
-  const M = 111320, deg = Cesium.Math.toDegrees;
-  const distM = (pt, line) => { // point to polyline, local equirectangular metres
-    const k = Math.cos((pt[1] * Math.PI) / 180);
-    let best = Infinity;
-    for (let i = 0; i + 1 < line.length; i++) {
-      const ax = (line[i][0] - pt[0]) * k * M, ay = (line[i][1] - pt[1]) * M;
-      const bx = (line[i + 1][0] - pt[0]) * k * M, by = (line[i + 1][1] - pt[1]) * M;
-      const dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy;
-      const t = L ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / L)) : 0;
-      best = Math.min(best, Math.hypot(ax + t * dx, ay + t * dy));
-    }
-    return best;
-  };
-  const find = (pos) => {
-    const ray = viewer.camera.getPickRay(pos);
-    const cart = ray && scene.globe.pick(ray, scene);
-    if (!cart) return null;
-    const c = Cesium.Cartographic.fromCartesian(cart);
-    const pt = [deg(c.longitude), deg(c.latitude)];
-    const tol = Math.max(30, Cesium.Cartesian3.distance(viewer.camera.position, cart) * 0.02); // ~ a few px at any zoom
-    let hit = null, best = tol;
-    segs.forEach((f, i) => { const d = distM(pt, f.geometry.coordinates); if (d < best) { best = d; hit = i; } });
-    return hit;
-  };
-  const show = (i, pos) => {
-    if (i === null) { el.hidden = true; return; }
-    const s = segs[i].properties;
-    const fire = s.mode === "overhead" && s.high_fire_km > 0.05;
-    el.className = "hud" + (fire ? " hud--alert" : "");
-    el.innerHTML = `<div class="mono-label${fire ? " acc2" : ""}">Segment ${i + 1} of ${segs.length}</div>
-      <div style="margin-top:4px">${esc(s.mode)} · ${fmtKm(s.length_km)} (${mi(s.length_km)} mi)<br>${fmtUsd(s.est_cost_usd)}` +
-      `${s.cost_per_mile_usd ? ` · ${fmtUsd(s.cost_per_mile_usd)}/mi` : ""}${fire ? `<br>${fmtKm(s.high_fire_km)} in HFTD` : ""}</div>`;
-    el.hidden = false;
-    const W = scene.canvas.clientWidth, H = scene.canvas.clientHeight;
-    el.style.left = `${Math.min(pos.x + 16, W - el.offsetWidth - 8)}px`;
-    el.style.top = `${Math.min(pos.y + 16, H - el.offsetHeight - 8)}px`;
-  };
-  let pinned = false, last = 0;
-  const h = new Cesium.ScreenSpaceEventHandler(scene.canvas);
-  h.setInputAction((m) => {
-    const now = performance.now();
-    if (pinned || isFlying() || now - last < 80) return;
-    last = now;
-    show(find(m.endPosition), m.endPosition);
-  }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
-  h.setInputAction((c) => {
-    if (isFlying()) return;
-    const i = find(c.position);
-    pinned = i !== null;
-    show(i, c.position);
-  }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+// Segment callout: map.js reports the selected-route segment under the cursor (hover) or clicked (pinned).
+function showSegment(s, pos) {
+  const el = $("segCallout");
+  if (!s) { el.hidden = true; return; }
+  const fire = s.mode === "overhead" && s.high_fire_km > 0.05;
+  el.className = "hud" + (fire ? " hud--alert" : "");
+  el.innerHTML = `<div class="mono-label${fire ? " acc2" : ""}">Segment ${s.index + 1} of ${s.count}</div>
+    <div style="margin-top:4px">${esc(s.mode)} · ${fmtKm(s.length_km)} (${mi(s.length_km)} mi)<br>${fmtUsd(s.est_cost_usd)}` +
+    `${s.cost_per_mile_usd ? ` · ${fmtUsd(s.cost_per_mile_usd)}/mi` : ""}${fire ? `<br>${fmtKm(s.high_fire_km)} in HFTD` : ""}</div>`;
+  el.hidden = false;
+  const box = el.parentElement;
+  el.style.left = `${Math.max(8, Math.min(pos.x + 16, box.clientWidth - el.offsetWidth - 8))}px`;
+  el.style.top = `${Math.max(8, Math.min(pos.y + 16, box.clientHeight - el.offsetHeight - 8))}px`;
 }
 
 // ------------------------------------------------------------------ boot
@@ -449,7 +401,7 @@ async function boot() {
       emptyState(`<div class="display display--3">Backend <span class="it">unreachable</span></div>
         <p class="muted">Couldn't load this route (${esc(e.detail || e.message)}). Is the server running?</p>
         <button class="btn" type="button" id="retry">Retry</button>`);
-      $("retry").onclick = () => boot().catch(() => {});
+      $("retry").onclick = run;
       return;
     }
   }
@@ -468,7 +420,11 @@ async function boot() {
   await initMap(data);
 }
 
-try { await boot(); } catch (e) {
-  emptyState(`<div class="display display--3">Something went <span class="it">wrong</span></div><p class="muted">${esc(e.message)}</p>`);
+// Boot (and Retry): any error that escapes boot is shown, not swallowed.
+async function run() {
+  try { await boot(); } catch (e) {
+    emptyState(`<div class="display display--3">Something went <span class="it">wrong</span></div><p class="muted">${esc(e.message)}</p>`);
+  }
 }
+await run();
 ready();

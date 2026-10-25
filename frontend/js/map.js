@@ -100,6 +100,8 @@ const GEOJSON_OVERLAYS = { hftd: "fire", protected: "protected", tribal: "tribal
 
 /**
  * opts: onPick(kind, lonlat) -> false vetoes the pick; onRouteClick(routeId) (pick mode off);
+ * onSegment(info | null, screenPos, pinned): selected-route segment under the cursor (hover) or clicked (pinned, pick mode off);
+ * panelOffset: px of side panel the framing keeps the route clear of (default 350; 0 = centred);
  * onStatus(msg, busy); onFlyChange(flying).
  */
 export async function createMap(container, opts = {}) {
@@ -185,7 +187,7 @@ export async function createMap(container, opts = {}) {
 
   // ------------------------------------------------------------------ state
   const state = { bbox: cfg.FALLBACK_BBOX || [-116.89, 32.94, -116.56, 33.21], start: null, end: null,
-                  view: "enhanced", pickMode: false, baseline: true, flyStoppedAt: 0 };
+                  view: "enhanced", pickMode: false, baseline: true, towers: true, flyStoppedAt: 0 };
   try { if (localStorage.getItem("gentie.view") === "top") state.view = "top"; } catch (_) { /* storage blocked */ }
   state.exaggeration = 1.5; // Enhanced view terrain height scale (dropdown)
   try {
@@ -260,14 +262,15 @@ export async function createMap(container, opts = {}) {
     redraw();
   }
 
-  // Tilted view of a lon/lat box, nudged so it sits right of the side panel.
+  // Tilted view of a lon/lat box, nudged so it sits right of the side panel (opts.panelOffset px).
   function frameBox([w, s, e, n], duration = 1.5, { heading = 0, pitchDeg = -45, rangeFactor = 2.5 } = {}) {
     const center = [(w + e) / 2, (s + n) / 2];
     const halfDiag = Math.max(distM([w, s], [e, n]) / 2, 2500);
     const range = halfDiag * rangeFactor;
     // the panel covers ~1/4 of the screen; visible ground width ~ 2*range*tan(30deg).
     // Shift the target toward screen-left (bearing heading - 90deg) so the box lands right of the panel.
-    const shiftM = window.innerWidth > 720 ? (350 / window.innerWidth) * range * Math.tan(Math.PI / 6) : 0;
+    const panelPx = opts.panelOffset ?? 350;
+    const shiftM = window.innerWidth > 720 ? (panelPx / window.innerWidth) * range * Math.tan(Math.PI / 6) : 0;
     const left = heading - Math.PI / 2;
     const [tx, ty] = offsetLL(center, shiftM * Math.sin(left), shiftM * Math.cos(left));
     viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(Cesium.Cartesian3.fromDegrees(tx, ty, 800), halfDiag), {
@@ -465,7 +468,8 @@ export async function createMap(container, opts = {}) {
     const enh = state.view === "enhanced";
     for (const r of routes.values()) {
       r.ds.top.show = !enh;
-      r.ds.enh.show = r.ds.hardware.show = enh;
+      r.ds.enh.show = enh;
+      r.ds.hardware.show = enh && state.towers; // 3D poles, conductors, tower dots
       r.ds.baseline.show = state.baseline && r.id === selectedId;
     }
   }
@@ -566,8 +570,8 @@ export async function createMap(container, opts = {}) {
     }
     const acc = cssColor("--acc");
     for (const ent of r.ds.top.entities.values) {
-      if (ent.billboard) ent.show = sel; // lattice glyphs: selected route only
-      if (ent.point) { ent.show = sel; ent.point.color = acc; }
+      if (ent.billboard) ent.show = sel && state.towers; // lattice glyphs: selected route only
+      if (ent.point) { ent.show = sel && state.towers; ent.point.color = acc; }
     }
   }
 
@@ -885,6 +889,33 @@ export async function createMap(container, opts = {}) {
     for (const r of routes.values()) if (Object.values(r.ds).some((d) => d.entities.contains(entity))) return r.id;
     return null;
   };
+  // Selected-route segment nearest a ground point, within a few pixels' worth of metres at the current zoom.
+  function segmentAt(cart) {
+    const r = routes.get(selectedId);
+    if (!r || !cart) return null;
+    const c = Cesium.Cartographic.fromCartesian(cart);
+    const pt = [Cesium.Math.toDegrees(c.longitude), Cesium.Math.toDegrees(c.latitude)];
+    const k = kLon(pt[1]);
+    const toLine = (line) => {
+      let d = Infinity;
+      for (let i = 0; i + 1 < line.length; i++) {
+        const ax = (line[i][0] - pt[0]) * k * M_PER_DEG, ay = (line[i][1] - pt[1]) * M_PER_DEG;
+        const dx = (line[i + 1][0] - line[i][0]) * k * M_PER_DEG, dy = (line[i + 1][1] - line[i][1]) * M_PER_DEG;
+        const L = dx * dx + dy * dy, t = L ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / L)) : 0;
+        d = Math.min(d, Math.hypot(ax + t * dx, ay + t * dy));
+      }
+      return d;
+    };
+    let best = Math.max(30, Cesium.Cartesian3.distance(viewer.camera.position, cart) * 0.02), hit = -1;
+    r.segments.forEach((f, i) => { const d = toLine(f.geometry.coordinates); if (d < best) { best = d; hit = i; } });
+    if (hit < 0) return null;
+    const p = r.segments[hit].properties;
+    return { index: hit, count: r.segments.length, mode: p.mode, length_km: p.length_km, est_cost_usd: p.est_cost_usd,
+             cost_per_mile_usd: p.cost_per_mile_usd, high_fire_km: p.high_fire_km };
+  }
+  const groundAt = (pos) => { const ray = viewer.camera.getPickRay(pos); return ray && globe.pick(ray, scene); };
+  let segPinned = false;
+
   const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
   handler.setInputAction(() => { if (fly) { state.flyStoppedAt = performance.now(); stopFly(); } },
     Cesium.ScreenSpaceEventType.LEFT_DOWN);
@@ -894,6 +925,11 @@ export async function createMap(container, opts = {}) {
     if (!state.pickMode) {
       const id = opts.onRouteClick && picked && picked.id ? routeOf(picked.id) : null;
       if (id !== null) opts.onRouteClick(id);
+      if (opts.onSegment) {
+        const info = segmentAt(groundAt(click.position));
+        segPinned = !!info; // click on the line pins the callout; click elsewhere clears it
+        opts.onSegment(info, click.position, segPinned);
+      }
       return;
     }
     let lonlat = null;
@@ -948,6 +984,7 @@ export async function createMap(container, opts = {}) {
     lastReadout = now;
     const ray = viewer.camera.getPickRay(m.endPosition);
     const cart = ray && globe.pick(ray, scene);
+    if (opts.onSegment && !segPinned) opts.onSegment(segmentAt(cart), m.endPosition, false);
     if (!cart) { readoutEl.hidden = true; return; }
     const c = Cesium.Cartographic.fromCartesian(cart);
     readoutEl.hidden = false;
@@ -981,6 +1018,7 @@ export async function createMap(container, opts = {}) {
     bounds: () => bounds,
     showRoute, removeRoute, clearRoutes, selectRoute, routeColor,
     setFlow: (on) => { flowOn = !!on; syncFlow(); },
+    setTowers: (on) => { state.towers = !!on; applyRouteVisibility(); paintAll(); }, // survives view/baseline/select changes
     setPickMode: (on) => { state.pickMode = !!on; },
     placeMarker, clearMarkers, frameRoute, homeView,
     setView, getView: () => state.view,
