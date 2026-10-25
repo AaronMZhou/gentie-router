@@ -34,7 +34,7 @@ CREATE INDEX IF NOT EXISTS routes_project ON routes(project_id);
 """
 JSON_FIELDS = ("start_lonlat", "end_lonlat")
 EST_KEYS = ("total_km", "total_cost_usd", "tower_count", "overhead_km", "underground_km", "n_transitions",
-            "high_fire_km", "overhead_high_fire_km", "protected_km", "tribal_km", "estimates")
+            "high_fire_km", "overhead_high_fire_km", "protected_km", "tribal_km", "estimates", "weather_maint")
 PROJECT_FIELDS = ("name", "voltage_kv", "phase", "filing_target", *JSON_FIELDS)
 
 
@@ -144,6 +144,17 @@ class Store:
     def delete_route(self, id):
         with self._db() as con:
             return con.execute("DELETE FROM routes WHERE id = ?", (id,)).rowcount > 0
+
+    def routes_without_weather(self):
+        with self._db() as con:
+            rows = con.execute("SELECT id, result_json FROM routes WHERE result_json NOT LIKE '%\"weather_maint\"%'").fetchall()
+        return [(r["id"], json.loads(r["result_json"])) for r in rows]
+
+    def set_route_weather(self, id, wm):
+        # one statement, so a route re-computed meanwhile is not overwritten with a stale copy
+        with self._db() as con:
+            con.execute("UPDATE routes SET result_json = json_set(result_json, '$.properties.weather_maint', json(?)) WHERE id = ?",
+                        (json.dumps(wm), id))
 
     def replace_route_result(self, id, result):
         with self._db() as con:

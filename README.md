@@ -353,3 +353,8 @@ Routing uses `skimage.graph.route_through_array` (8-connected, geometric distanc
 - The Cesium ion token in `config.js` is visible to anyone who loads the page. Restrict its allowed URLs in your Cesium ion dashboard before deploying publicly.
 
 Data: USGS 3DEP and PAD-US (public domain), CPUC HFTD, CAL FIRE FHSZ, © OpenStreetMap contributors (ODbL), Cesium World Terrain/Imagery via Cesium ion.
+
+## Weather-informed maintenance and supply-market cost
+
+- **Maintenance multiplier** (`backend/climate.py`): when a route is saved, the backend pulls about 5 years of daily Open-Meteo archive data at a few points along it, counts days per year over the gust, wind, heat, cold and heavy-rain limits, and stores `properties.weather_maint` (multiplier 1.0 to 1.5, with drivers). `estimates.js` applies it to overhead lines, structures and vegetation upkeep (not underground cable), so the 40-year total, ranking and project comparison use it. Uplift weights are placeholders in `config.WEATHER_MAINT`. Results are cached in `data/cache/climate.json`; routes saved before this feature are filled in at startup in the background. Set `GENTIE_NO_CLIMATE=1` to skip the lookups. ERA5 is a coarse reanalysis and understates local gusts.
+- **Supply market**: the route cost assumes current-market material prices. The Supply chain market setting adds or removes only the difference (`summary.market_cost_delta_usd`), shown in the route header and Costs cell. Ranking always uses the current market.

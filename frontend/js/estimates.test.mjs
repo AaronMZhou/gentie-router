@@ -6,6 +6,13 @@ const p = JSON.parse(readFileSync(new URL("../demo_route.json", import.meta.url)
 const e = estimate(p);
 
 assert.equal(e.is_placeholder, true);
+{ // weather multiplier scales overhead-side upkeep only
+  const wm = { multiplier: 1.25, drivers: [], years: "2021-2025", points: 3 };
+  const w = estimate({ ...p, weather_maint: wm });
+  for (const k of ["overhead_lines", "structures", "fire_vegetation"]) assert.ok(Math.abs(w.maintenance_breakdown[k] - 1.25 * e.maintenance_breakdown[k]) < 1e-6, k);
+  assert.equal(w.maintenance_breakdown.underground_cable, e.maintenance_breakdown.underground_cable);
+  assert.equal(e.weather_maint, null);
+}
 assert.equal(e.upfront_total, p.total_cost_usd);
 const sum = Object.values(e.upfront_breakdown).reduce((a, b) => a + b, 0);
 assert.ok(Math.abs(sum - e.upfront_total) < 1, `breakdown sum ${sum}`);

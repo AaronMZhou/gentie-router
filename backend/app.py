@@ -55,7 +55,7 @@ from backend.weather.weather_service import fetch_weather
 from backend.weather.history_service import fetch_outlook
 
 import config as C
-from backend import inventory, seed, worker
+from backend import climate, inventory, seed, worker
 from backend.store import Store
 
 Phase = Literal["drafting", "comparing", "permit-risk", "ready"]
@@ -154,9 +154,29 @@ async def lifespan(_app):
     print(f"[gentie] {mode}; cache {CACHE_SIZE} entries; synthetic layers: {state['meta']['synthetic_layers'] or 'none'}")
     state["store"] = Store(os.getenv("GENTIE_DB", C.PROJECTS_DB))
     await seed.seed_if_empty(state["store"], cached_route)
+    backfill = None if CLIMATE_OFF else asyncio.create_task(_backfill_climate())
     yield
+    if backfill:
+        backfill.cancel()
     if state["pool"]:
         state["pool"].shutdown(cancel_futures=True)
+
+
+CLIMATE_OFF = os.getenv("GENTIE_NO_CLIMATE") == "1"   # skip the multi-year weather lookups (offline / tests)
+
+
+async def _with_weather(result):
+    """Adds properties.weather_maint (the weather-based maintenance multiplier) when the archive is reachable."""
+    if not CLIMATE_OFF and (wm := await run_in_threadpool(climate.weather_maint, result)):
+        result["properties"]["weather_maint"] = wm
+    return result
+
+
+async def _backfill_climate():
+    """Routes stored before this feature (or while offline) pick up their multiplier in the background."""
+    for rid, result in state["store"].routes_without_weather():
+        if wm := await run_in_threadpool(climate.weather_maint, result):
+            state["store"].set_route_weather(rid, wm)
 
 
 app = FastAPI(title="Gen-tie Router", version="0.1.0", lifespan=lifespan)
@@ -284,6 +304,7 @@ async def update_project(id: int, req: ProjectPatch):
     if (start, end) != (p["start_lonlat"], p["end_lonlat"]) and p["routes"]:
         # recompute every route first, so a bad endpoint (400) leaves the project untouched
         results = await asyncio.gather(*[_route_or_400(start, end, r["preset"]) for r in p["routes"]])
+        results = await asyncio.gather(*[_with_weather(x) for x in results])
     for r, result in zip(p["routes"], results):
         state["store"].replace_route_result(r["id"], result)
     return state["store"].update_project(id, **fields) or _project_or_404(id)
@@ -302,7 +323,7 @@ async def add_route(id: int, req: RouteCreate):
     start, end = req.start_lonlat or p["start_lonlat"], req.end_lonlat or p["end_lonlat"]
     if not (start and end):
         raise HTTPException(status_code=400, detail="project has no endpoints yet: pass start_lonlat and end_lonlat")
-    result = await _route_or_400(start, end, req.preset)
+    result = await _with_weather(await _route_or_400(start, end, req.preset))
     try:
         if (start, end) != (p["start_lonlat"], p["end_lonlat"]):
             state["store"].update_project(id, start_lonlat=start, end_lonlat=end)

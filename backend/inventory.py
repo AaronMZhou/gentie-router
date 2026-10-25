@@ -212,7 +212,8 @@ def assess(route_fc, voltage_kv=69, capacity_mw=100.0, need_by_weeks=104.0, mark
     else:
         p_all, earliest, crit_share = 0.0, {"p50": None, "p80": None, "p90": None}, np.zeros(len(lines))
 
-    out_lines, total_cost = [], 0.0
+    out_lines, total_cost, base_cost = [], 0.0, 0.0
+    cur_mult = cat["market_scenarios"]["current"]["price_mult"]
     for i, L in enumerate(lines):
         item, e = L["item"], L["eta"]
         stock_only = L["plan_eta"] is not None and all(a["made"] < 1e-9 for a in L["plan"].values())
@@ -220,6 +221,7 @@ def assess(route_fc, voltage_kv=69, capacity_mw=100.0, need_by_weeks=104.0, mark
         long_lead = L["band"][1] >= C.LONG_LEAD_WEEKS
         cost = L["qty"] * (L["unit_cost"] or 0) * mk["price_mult"]
         total_cost += cost
+        base_cost += L["qty"] * (L["unit_cost"] or 0) * cur_mult
         if e is None:
             status, p_on, eta_d, order_by = "NO QUALIFIED SUPPLIER", 0.0, {"p50": None, "p90": None}, None
         else:
@@ -274,7 +276,9 @@ def assess(route_fc, voltage_kv=69, capacity_mw=100.0, need_by_weeks=104.0, mark
             "critical_path_drivers": drivers,
             "unqualified": [l["name"] for l in out_lines if l["status"] == "NO QUALIFIED SUPPLIER"],
             "est_material_cost_usd": round(total_cost),
-            "cost_note": "Placeholder unit prices; not reconciled with the router's construction-cost model.",
+            # what the chosen market adds to (or takes off) the route's baseline cost, which assumes current-market prices
+            "market_cost_delta_usd": round(total_cost - base_cost),
+            "cost_note": "Placeholder unit prices. Only the difference from the current market is added to the route cost.",
         },
         "lines": out_lines,
         "order_plan": plan,

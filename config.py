@@ -193,3 +193,16 @@ MIN_ROW_SEGMENT_M = 60.0     # landholder runs shorter than this are rasterizati
 INVENTORY_CATALOG = DATA_DIR / "inventory" / "catalog.json"
 LONG_LEAD_WEEKS = 40         # catalog items whose typical (p50) lead time is at least this are "long-lead"
 INVENTORY_TRIALS = 600       # Monte Carlo trials per assessment
+
+# --------------------------------------------------------------------------
+# Weather-informed maintenance (backend/climate.py)
+# --------------------------------------------------------------------------
+CLIMATE_YEARS = 5                 # years of Open-Meteo archive (ERA5) history behind the multiplier
+CLIMATE_CACHE = DATA_DIR / "cache" / "climate.json"
+CLIMATE_SAMPLE_KM = 8             # one weather point per ~8 km of route ...
+CLIMATE_MAX_POINTS = 6            # ... but never more than this
+# daily screening limits; keep in step with T in frontend/js/weather-cell.js
+WEATHER_LIMITS = {"gust": 70, "wind": 50, "heat": 35, "cold": -10, "rain_mm": 10}
+# hazard -> (days/yr that earns the full uplift, max uplift on weather-exposed upkeep).  Placeholder weights.
+WEATHER_MAINT = {"gust": (10, 0.20), "wind": (20, 0.10), "heat": (15, 0.10), "cold": (5, 0.08), "rain": (15, 0.07)}
+WEATHER_MAINT_CAP = 1.5           # multiplier ceiling

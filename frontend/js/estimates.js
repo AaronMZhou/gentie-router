@@ -69,11 +69,14 @@ export function estimate(props = {}, project = {}) {
   for (const k in raw) upfront_breakdown[k] = rawSum ? (raw[k] / rawSum) * total : 0;
   if (!rawSum) upfront_breakdown.structures = total;
 
+  // Weather-exposed upkeep (backend/climate.py) scales with how often the route's weather passes the hazard limits;
+  // underground cable is buried, so it keeps the flat rate.
+  const wm = props.weather_maint, wx = wm?.multiplier ?? 1;
   const maintenance_breakdown = {
-    overhead_lines: ohKm * RATES.maint_oh_km * vScale,
+    overhead_lines: ohKm * RATES.maint_oh_km * vScale * wx,
     underground_cable: ugKm * RATES.maint_ug_km * vScale,
-    structures: towers * RATES.maint_tower * vScale,
-    fire_vegetation: fireKm * RATES.maint_fire_km * vScale,
+    structures: towers * RATES.maint_tower * vScale * wx,
+    fire_vegetation: fireKm * RATES.maint_fire_km * vScale * wx,
   };
   const maintenance_per_year = sumVals(maintenance_breakdown);
 
@@ -125,6 +128,7 @@ export function estimate(props = {}, project = {}) {
     upfront_breakdown,
     maintenance_per_year,
     maintenance_breakdown,
+    weather_maint: wm || null,
     lifetime_cost_40yr: total + maintenance_per_year * RATES.years,
     calendar,
     energize_date: calendar[calendar.length - 1].end,

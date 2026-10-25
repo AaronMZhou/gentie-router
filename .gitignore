@@ -8,3 +8,4 @@ data/projects.db-*
 frontend/config.js
 loadtest/.locust/
 backend/weather/.cache.sqlite
+data/cache/

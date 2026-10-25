@@ -129,8 +129,8 @@ function page({ fc, route, project, demo }, est) {
     <div><div class="mono-label">Route ${n} · ${esc(project.voltage_kv)} kV ${modeWord} · ${mi(p.total_km)} mi</div>
       <h1 class="display display--1">${esc(route.name)} <span class="it acc">route</span></h1></div>
     <div class="figs">
-      <div><div class="mono-label">Upfront</div><div class="display">${money(p.total_cost_usd)}</div></div>
-      <div><div class="mono-label">40-yr total</div><div class="display">${money(est.lifetime_cost_40yr)}${mk("Placeholder: upfront + 40 yr of placeholder upkeep, undiscounted")}</div></div>
+      <div><div class="mono-label">Upfront</div><div class="display" id="upfrontFig">${money(p.total_cost_usd)}</div></div>
+      <div><div class="mono-label">40-yr total</div><div class="display"><span id="lifeFig">${money(est.lifetime_cost_40yr)}</span>${mk("Placeholder: upfront + 40 yr of placeholder upkeep, undiscounted")}</div></div>
       <div><div class="mono-label">Energize</div><div class="display it acc2">${quarter(est.energize_date)}${mk("Placeholder: end of the placeholder deployment calendar")}</div></div>
     </div>
   </div>
@@ -179,6 +179,7 @@ function page({ fc, route, project, demo }, est) {
       <h6>Where the <span class="it">${money(p.total_cost_usd)}</span> goes</h6>
       <div class="donut" style="${donutStyle}" role="img" aria-label="${esc(donutLabel)}"></div>
       <div class="lg">${slices.map(([k, v], i) => `<span><span><i style="background:var(--series-${i + 1})"></i>${esc(k)}</span>${money(v)}${mk()}</span>`).join("")}</div>
+      <p class="muted" id="supplyAdj" style="font-size:12px;margin-top:12px" hidden></p>
     </div>
     <div class="cell sect" id="inventory" style="grid-column:span 4"><div class="mono-label">Inventory</div>
       <h6>Bill of <span class="it">materials</span></h6>
@@ -192,6 +193,7 @@ function page({ fc, route, project, demo }, est) {
         <path d="${spark} V110 H0Z" fill="var(--series-1)" opacity=".12"/><path d="${spark}" fill="none" stroke="var(--series-1)" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>
       <div class="mono-label" style="display:flex;justify-content:space-between;margin:4px 0 8px"><span>Yr 0 · ${money(est.upfront_total)}</span><span>Yr 40 · ${money(est.lifetime_cost_40yr)}${mk()}</span></div>
       <table class="inv">${maintRows.map(([k, v]) => `<tr><td>${MAINT_LABELS[k] || esc(k)}</td><td>${fmtUsd(v)}/yr${mk()}</td></tr>`).join("")}</table>
+      ${weatherNote(est.weather_maint)}
     </div>
     <div class="cell sect" id="calendar" style="grid-column:span 7"><div class="mono-label">Deployment calendar ${mk("Placeholder durations, driven by the real permit triggers")}</div>
       <h6>Energized by <span class="it acc2">${quarter(est.energize_date)}</span></h6>
@@ -216,6 +218,27 @@ function page({ fc, route, project, demo }, est) {
     ${weatherCell()}
     ${analysisCell()}
   </div>`;
+}
+
+const HAZARD = { gust: "strong gusts", wind: "high winds", heat: "heat", cold: "cold", rain: "heavy rain" };
+function weatherNote(wm) {
+  if (!wm) return `<p class="muted" style="font-size:12px;margin-top:12px">Flat estimate: no weather history for this route yet.</p>`;
+  const top = wm.drivers.filter((d) => d.uplift > 0).slice(0, 2).map((d) => `${HAZARD[d.hazard]} (${d.days_per_year} days/yr)`);
+  return `<p style="font-size:13px;margin-top:12px"><b>Weather adjustment ×${wm.multiplier.toFixed(2)}</b> on overhead, structures and vegetation upkeep${top.length ? `, driven by ${top.join(" and ")}` : ""}.
+    <span class="muted" style="display:block;font-size:12px;margin-top:4px">${esc(wm.source)}, ${esc(wm.years)}, ${wm.points} points. Underground cable is not adjusted. Weights are placeholders.</span></p>`;
+}
+
+// Supply-market effect on the upfront cost: the route cost assumes current prices, so only the difference counts.
+function wireSupplyAdjustment(data, est) {
+  const base = data.fc.properties.total_cost_usd;
+  document.addEventListener("gentie:supply", (e) => {
+    const d = (data.supplyAdj = e.detail.delta || 0);
+    $("upfrontFig").textContent = money(base + d);
+    $("lifeFig").textContent = money(est.lifetime_cost_40yr + d);
+    const note = $("supplyAdj");
+    note.hidden = !d;
+    note.innerHTML = d ? `<b>Supply market (${esc(e.detail.market)}): ${d > 0 ? "+" : "−"}${money(Math.abs(d))}</b> included in the upfront and 40-yr figures above. Change it in Supply chain.` : "";
+  });
 }
 
 // The legacy results panel (panel.js renderResults fills every data-r target).
@@ -278,7 +301,7 @@ function wireActions(data, est) {
   exp.onclick = () => {
     const { fc, route, project } = data;
     const packet = { exported_at: new Date().toISOString(), project: data.demo ? null : project,
-      route: { ...route, result: fc }, estimate: est };
+      route: { ...route, result: fc }, estimate: est, supply_market_adjustment_usd: data.supplyAdj || 0 };
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([JSON.stringify(packet, null, 2)], { type: "application/json" }));
     a.download = `${(data.demo ? "demo" : `${project.name}-${route.name}`).toLowerCase().replace(/[^a-z0-9]+/g, "-")}-packet.json`;
@@ -425,6 +448,7 @@ async function boot() {
   renderResults($("analysis"), data.fc.properties, data.fc.features, { isDemo: data.demo });
   $("assumptions").textContent = await assumptionsNote(data.demo);
   wireActions(data, est);
+  wireSupplyAdjustment(data, est);
   wireTabs();
   const map = await initMap(data);
   initSupply({ start: data.fc.properties.start, end: data.fc.properties.end, preset: data.route.preset }, { demo: data.demo });

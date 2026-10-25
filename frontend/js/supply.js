@@ -50,6 +50,7 @@ export function initSupply(route, { demo }) {
   const sum = $("invSummary"), list = $("invList");
 
   async function refresh() {
+    document.dispatchEvent(new CustomEvent("gentie:supply", { detail: { delta: 0, market: "current" } }));
     if (demo) { sum.textContent = "The supplier simulation needs the backend (not available in demo mode)."; return; }
     const mine = ++seq;
     sum.textContent = "Checking supplier availability…";
@@ -76,6 +77,10 @@ export function initSupply(route, { demo }) {
       parts.push(`Holding up the schedule: ${s.critical_path_drivers.map((d) => `${esc(d.name)} (${Math.round(100 * d.share)}%)`).join(", ")}.`);
     }
     parts.push(`Materials ≈ ${fmtUsd(s.est_material_cost_usd)} (placeholder prices).`);
+    const delta = s.market_cost_delta_usd;
+    parts.push(delta ? `<b>${delta > 0 ? "+" : "−"}${fmtUsd(Math.abs(delta))}</b> on the route's upfront cost from the ${esc(r.params.market_label.split(" ")[0].toLowerCase())} market (the route cost assumes current prices).`
+      : "No change to the route's upfront cost: the route cost already assumes current-market prices.");
+    document.dispatchEvent(new CustomEvent("gentie:supply", { detail: { delta, market: r.params.market } }));
     sum.innerHTML = parts.join("<br>");
     const byId = Object.fromEntries(r.lines.map((l) => [l.id, l]));
     const bidsUrl = (l) => "suppliers.html?" + new URLSearchParams({
