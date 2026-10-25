@@ -6,10 +6,20 @@
   <title>Gen-tie Router (tool)</title>
   <link rel="icon" href="data:,">
   <script>
-    // page boot contract: data-errors collects uncaught errors, data-ready="1" is set by pages/tool.js
-    window.addEventListener("error", (e) => (document.documentElement.dataset.errors = (document.documentElement.dataset.errors || "") + e.message + "|"));
+    // head snippet (styles/STYLES.md): theme before first paint + boot-contract error capture;
+    // data-ready="1" is set by pages/tool.js
+    (function () {
+      var d = document.documentElement, t;
+      try { t = localStorage.getItem("gentie.theme"); } catch (e) {}
+      if (t !== "dark" && t !== "light") t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      d.dataset.theme = t;
+      window.addEventListener("error", function (e) { d.dataset.errors = (d.dataset.errors || "") + e.message + "|"; });
+      window.addEventListener("unhandledrejection", function (e) { d.dataset.errors = (d.dataset.errors || "") + (e.reason && e.reason.message || String(e.reason)) + "|"; });
+    })();
   </script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.123.0/Build/Cesium/Widgets/widgets.css">
+  <!-- tokens first: map.js reads --acc/--text/--route-*; style.css's own --bg/--line/--muted still win -->
+  <link rel="stylesheet" href="styles/tokens.css">
   <link rel="stylesheet" href="style.css">
   <style>
     /* map.js HUD elements (same look as #toast / #readout in style.css) */
@@ -19,6 +29,9 @@
     .map-toast.info { border-color: var(--line); color: var(--fg); }
     .map-readout { position: absolute; bottom: 36px; right: 12px; background: rgba(18, 22, 28, 0.85); padding: 6px 10px;
       border-radius: 6px; font-variant-numeric: tabular-nums; pointer-events: none; font-size: 12px; }
+    /* the selected route is drawn in --route-1 (= --acc) by map.js */
+    .sw.oh { background: var(--route-1); }
+    .sw.ug { border-top-color: var(--route-1); }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/cesium@1.123.0/Build/Cesium/Cesium.js"></script>
   <script src="config.js"></script>
