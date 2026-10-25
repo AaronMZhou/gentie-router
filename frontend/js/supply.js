@@ -3,22 +3,46 @@ import { apiSend } from "./api.js";
 import { fmtUsd } from "./panel.js";
 
 const $ = (id) => document.getElementById(id);
+const pressed = (id, key) => $(id).querySelector("[aria-pressed=true]").dataset[key];
 const esc = (t) => String(t).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-const INPUTS = ["invMw", "invKv", "invNeed", "invMarket"];
+const MARKETS = [["current", "Current", "Lead times as published today."], ["tight", "Tight", "Longer waits, less stock on hand."],
+  ["crisis", "Crisis", "Severe shortages, some items unavailable."]];
 
-export const supplyCell = (voltageKv) => `
+export const supplyCell = (voltageKv) => {
+  const kv = voltageKv === 69 ? 69 : 138;
+  const seg = (name, items, on) => items.map(([v, big, small]) =>
+    `<button type="button" data-${name}="${v}" aria-pressed="${String(v) === String(on)}"><b>${big}</b>${small ? `<span>${small}</span>` : ""}</button>`).join("");
+  return `
   <div class="cell sect" id="supply" style="grid-column:span 12"><div class="mono-label">Supply chain <span class="est" title="Simulated suppliers, placeholder lead times and prices">sim.</span></div>
     <h6>Materials &amp; <span class="it">long-lead procurement</span></h6>
-    <div class="fx-grid invctl">
-      <label>Project MW <input id="invMw" type="number" min="5" max="1000" value="100"></label>
-      <label>Line kV <select id="invKv"><option value="69"${voltageKv === 69 ? " selected" : ""}>69</option><option value="138"${voltageKv !== 69 ? " selected" : ""}>138</option></select></label>
-      <label>Construction starts in (wks) <input id="invNeed" type="number" min="0" max="520" value="104"></label>
-      <label>Supply market <select id="invMarket"><option value="current">Current</option><option value="tight">Tight</option><option value="crisis">Crisis</option></select></label>
+    <div class="b-row">
+      <div class="b-field">
+        <span class="lbl" id="invKvL">Line voltage</span>
+        <div class="seg two" role="group" aria-labelledby="invKvL" id="invKv">${seg("kv", [[69, "69 kV"], [138, "138 kV"]], kv)}</div>
+        <span class="hint">Voltage of the new line. It sets the towers and equipment you need to buy.</span>
+      </div>
+      <div class="b-field">
+        <div class="b-top"><label class="lbl" for="invMw">Project size</label><span class="b-val"><span id="invMwV">100</span><small>MW</small></span></div>
+        <input id="invMw" type="range" min="5" max="1000" step="5" value="100">
+        <div class="ticks"><span>5</span><span>250</span><span>500</span><span>750</span><span>1000</span></div>
+        <span class="hint">Generating capacity. Bigger projects need a bigger step-up transformer.</span>
+      </div>
+      <div class="b-field wide">
+        <div class="b-top"><label class="lbl" for="invNeed">Construction starts in</label><span class="b-val"><span id="invNeedV">104</span><small id="invNeedU">WEEKS · ≈ 2.0 YEARS</small></span></div>
+        <input id="invNeed" type="range" min="0" max="520" step="4" value="104">
+        <div class="ticks"><span>NOW</span><span>1 YR</span><span>2 YR</span><span>5 YR</span><span>10 YR</span></div>
+        <span class="hint">When crews need materials on site. The sooner it is, the more long-lead items miss the date.</span>
+      </div>
+      <div class="b-field wide">
+        <span class="lbl" id="invMarketL">Supply market</span>
+        <div class="seg" role="group" aria-labelledby="invMarketL" id="invMarket">${seg("market", MARKETS, "current")}</div>
+      </div>
     </div>
     <div id="invSummary" class="note"></div>
     <ul id="invList" class="inv"></ul>
     <div id="invNote" class="note"></div>
   </div>`;
+};
 
 // route: {start, end, preset}; demo routes have no backend, so only a notice is shown.
 export function initSupply(route, { demo }) {
@@ -33,8 +57,8 @@ export function initSupply(route, { demo }) {
     try {
       const r = await apiSend("POST", "/inventory", {
         start: route.start, end: route.end, preset: route.preset,
-        capacity_mw: +$("invMw").value || 100, voltage_kv: +$("invKv").value,
-        need_by_weeks: +$("invNeed").value || 0, market: $("invMarket").value,
+        capacity_mw: +$("invMw").value || 100, voltage_kv: +pressed("invKv", "kv"),
+        need_by_weeks: +$("invNeed").value || 0, market: pressed("invMarket", "market"),
       });
       if (mine === seq) render(r); // ignore answers superseded by a newer request
     } catch (err) {
@@ -71,6 +95,19 @@ export function initSupply(route, { demo }) {
     $("invNote").textContent = `Simulated suppliers and placeholder lead times (${r.params.trials} Monte Carlo trials; market: ${r.params.market_label}). Edit data/inventory/catalog.json.`;
   }
 
-  INPUTS.forEach((id) => $(id).addEventListener("change", refresh));
+  for (const id of ["invKv", "invMarket"]) {
+    $(id).addEventListener("click", (e) => {
+      const b = e.target.closest("button"); if (!b) return;
+      $(id).querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      refresh();
+    });
+  }
+  // sliders: readout follows the thumb, the (slow) simulation reruns on release
+  $("invMw").addEventListener("input", (e) => ($("invMwV").textContent = e.target.value));
+  $("invNeed").addEventListener("input", (e) => {
+    $("invNeedV").textContent = e.target.value;
+    $("invNeedU").textContent = `WEEKS · ≈ ${(e.target.value / 52).toFixed(1)} YEARS`;
+  });
+  for (const id of ["invMw", "invNeed"]) $(id).addEventListener("change", refresh);
   return refresh();
 }
