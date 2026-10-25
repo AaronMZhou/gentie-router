@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Project · Gen-tie Router</title>
+  <link rel="icon" href="data:,">
+  <script>
+    (function () {
+      var d = document.documentElement, t;
+      try { t = localStorage.getItem("gentie.theme"); } catch (e) {}
+      if (t !== "dark" && t !== "light") t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      d.dataset.theme = t;
+      window.addEventListener("error", function (e) { d.dataset.errors = (d.dataset.errors || "") + e.message + "|"; });
+      window.addEventListener("unhandledrejection", function (e) { d.dataset.errors = (d.dataset.errors || "") + (e.reason && e.reason.message || String(e.reason)) + "|"; });
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500&family=Geist:wght@300;400;500&display=swap">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.123.0/Build/Cesium/Widgets/widgets.css">
+  <link rel="stylesheet" href="styles/tokens.css">
+  <link rel="stylesheet" href="styles/components.css">
+  <script src="https://cdn.jsdelivr.net/npm/cesium@1.123.0/Build/Cesium/Cesium.js"></script>
+  <script src="config.js"></script>
+</head>
+<body>
+  <nav class="nav-top">
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;min-width:0">
+      <a class="logo" href="landing.html"><i></i>Gen-tie Router</a>
+      <span class="mono-label" aria-label="Breadcrumb">/ <a href="dashboard.html">Projects</a> / <span id="crumb-name"></span></span>
+    </div>
+    <div class="actions">
+      <button class="btn" type="button" id="edit-project" hidden>Project ⋯</button>
+      <button class="btn btn--fill" type="button" id="add-route" hidden>+ Add route</button>
+      <button class="theme-toggle" type="button"></button>
+    </div>
+  </nav>
+  <main id="app"></main>
+
+  <template id="proj-tpl">
+    <div class="proj">
+      <div class="mapwrap grid-bg">
+        <div id="cesium" style="position:absolute;inset:0"></div>
+        <div class="hud mapbadge" id="badge"></div>
+        <div class="hud maplegend" id="legend"></div>
+        <details class="hud maptools" id="tools" open>
+          <summary class="mono-label">Layers · view</summary>
+          <div class="grp">
+            <div class="row" role="group" aria-label="View mode">
+              <button class="btn btn--sm" type="button" data-view="top">Top</button>
+              <button class="btn btn--sm" type="button" data-view="enhanced">Enhanced</button>
+            </div>
+            <label class="field" id="exag-row"><span class="mono-label">Terrain height</span>
+              <select id="exag"><option value="1">1× (true scale)</option><option value="1.5">1.5×</option><option value="2">2×</option><option value="3">3×</option></select></label>
+          </div>
+          <div class="grp" id="overlays">
+            <div class="mono-label">Overlays</div>
+            <label class="chk"><input type="checkbox" data-overlay="fire"> Wildfire hazard (USFS WHP)</label>
+            <label class="chk"><input type="checkbox" data-overlay="hftd"> HFTD / FHSZ tiers</label>
+            <label class="chk"><input type="checkbox" data-overlay="protected"> Protected land</label>
+            <label class="chk"><input type="checkbox" data-overlay="tribal"> Tribal land</label>
+            <label class="chk"><input type="checkbox" data-overlay="lines" checked> Existing power lines</label>
+            <label class="chk"><input type="checkbox" data-overlay="baseline" checked> Straight-line baseline</label>
+            <label class="chk"><input type="checkbox" data-overlay="contours"> Elevation contours (100 m)</label>
+            <label class="chk"><input type="checkbox" data-overlay="cities" checked> Cities &amp; towns</label>
+            <label class="chk"><input type="checkbox" data-overlay="borders" checked> Country / state borders</label>
+          </div>
+          <div class="grp">
+            <button class="btn btn--sm" type="button" id="validate">Compare to real line</button>
+            <div id="valpop" hidden>
+              <div class="mono-label" id="val-label"></div>
+              <table class="inv"><thead><tr><td></td><td>Mean</td><td>≤500 m</td><td>Length</td></tr></thead><tbody id="val-rows"></tbody></table>
+              <p class="muted" style="font-size:12px;margin-top:8px" id="val-note"></p>
+              <button class="btn btn--sm" type="button" id="val-close" style="margin-top:8px">Back to routes</button>
+            </div>
+          </div>
+        </details>
+      </div>
+      <div class="rail" id="rail" aria-live="polite"></div>
+    </div>
+  </template>
+
+  <dialog class="modal" id="add-modal" aria-labelledby="add-title">
+    <form method="dialog">
+      <div class="mono-label">Add route</div>
+      <h3 class="display display--3" id="add-title">Pick a <span class="it">strategy</span></h3>
+      <div id="add-choices" style="display:flex;flex-direction:column;gap:10px"></div>
+      <div class="actions"><button class="btn" value="cancel">Cancel</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="edit-modal" aria-labelledby="edit-title">
+    <form>
+      <div class="mono-label">Project</div>
+      <h3 class="display display--3" id="edit-title">Edit <span class="it">project</span></h3>
+      <label class="field"><span class="mono-label">Name</span><input name="name" required autocomplete="off"></label>
+      <label class="field"><span class="mono-label">Phase</span><select name="phase"><option value="drafting">Drafting</option><option value="comparing">Comparing</option><option value="permit-risk">Permit risk</option><option value="ready">Ready to file</option></select></label>
+      <label class="field"><span class="mono-label">Filing target (optional)</span><input name="filing_target" type="date"></label>
+      <div class="actions" style="justify-content:space-between">
+        <button class="btn" type="button" id="delete-project">Delete project</button>
+        <span style="display:flex;gap:10px"><button class="btn" type="button" id="edit-cancel">Cancel</button><button class="btn btn--fill" type="submit">Save</button></span>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="rename-modal" aria-labelledby="rename-title">
+    <form>
+      <div class="mono-label">Route</div>
+      <h3 class="display display--3" id="rename-title">Rename <span class="it">route</span></h3>
+      <label class="field"><span class="mono-label">Name</span><input name="name" required autocomplete="off"></label>
+      <div class="actions"><button class="btn" type="button" id="rename-cancel">Cancel</button><button class="btn btn--fill" type="submit">Save</button></div>
+    </form>
+  </dialog>
+
+  <script type="module" src="js/pages/project.js"></script>
+</body>
+</html>

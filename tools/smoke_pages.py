@@ -1,12 +1,13 @@
 """Headless-Chrome page smoke test.
 
-    python tools/smoke_pages.py URL [URL ...] [--no-server] [--no-seed] [--eval JS ...]
+    python tools/smoke_pages.py URL [URL ...] [--no-server] [--no-seed] [--eval JS ...] [--width W]
 
 URL is a path like /dashboard.html (or a full http URL). Each page must follow the
 boot contract in frontend/styles/STYLES.md: <html data-ready="1"> once booted and no
 recorded data-errors. By default uvicorn serves the app on :8767 (ROUTE_WORKERS=0,
 temp DB, seeded with the sample projects; --no-seed starts it empty). --no-server serves frontend/ with a static http.server on :8768,
-so there is no API at all.
+so there is no API at all. The window is W x 900 (default 1440, the desktop layout;
+use --width 390 for the phone layout).
 
 --eval JS (repeatable) is an expression evaluated in page global scope after
 data-ready="1"; it may use `await` or return a Promise. If every one is truthy,
@@ -110,9 +111,9 @@ class HtmlAttrs(html.parser.HTMLParser):
             self.attrs = dict(attrs)
 
 
-def check(chrome, url, profile, want_check):
+def check(chrome, url, profile, want_check, width):
     cmd = [chrome, "--headless=new", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
-           "--virtual-time-budget=15000", "--dump-dom", "--no-first-run", "--no-default-browser-check",
+           "--virtual-time-budget=15000", f"--window-size={width},900", "--dump-dom", "--no-first-run", "--no-default-browser-check",
            f"--user-data-dir={profile}", url]
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
@@ -140,6 +141,7 @@ def main():
     ap.add_argument("--no-server", action="store_true", help="static files only, no API")
     ap.add_argument("--no-seed", action="store_true", help="start the API with an empty project store")
     ap.add_argument("--eval", action="append", default=[], metavar="JS", help="truthy check, repeatable")
+    ap.add_argument("--width", type=int, default=1440, metavar="W", help="window width in px (height 900)")
     args = ap.parse_args()
 
     chrome = find_chrome()
@@ -172,7 +174,7 @@ def main():
             base = f"http://127.0.0.1:{PROXY_PORT}"
         for i, u in enumerate(args.urls):
             url = u if u.startswith("http") else base + "/" + u.lstrip("/")
-            reason = check(chrome, url, os.path.join(tmp, f"profile-{i}"), bool(args.eval))
+            reason = check(chrome, url, os.path.join(tmp, f"profile-{i}"), bool(args.eval), args.width)
             if not reason and server.poll() is not None:
                 reason = f"server exited ({server.returncode}) during the run"
             print(f"FAIL {u}: {reason}" if reason else f"OK {u}", flush=True)

@@ -145,6 +145,36 @@ img, svg { display: block; max-width: 100%; }
 .maplegend span { display: flex; align-items: center; gap: 8px; }
 .maplegend i { width: 18px; height: 2px; display: inline-block; }
 
+.rcard .acts { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.rail-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* collapsible map toolbar: <details class="hud maptools"> top right */
+.maptools { right: 20px; top: 20px; width: 260px; max-height: calc(100% - 40px); overflow: auto; padding: 0; }
+.maptools:not([open]) { width: auto; }
+.maptools > summary { gap: 10px; padding: 12px 14px; cursor: pointer; list-style: none; display: flex; justify-content: space-between; }
+.maptools > summary::-webkit-details-marker { display: none; }
+.maptools > summary::after { content: "▾"; }
+.maptools[open] > summary::after { content: "▴"; }
+.maptools .grp { padding: 12px 14px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+.maptools .row { display: flex; gap: 8px; flex-wrap: wrap; }
+.maptools label.chk { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+.maptools [aria-pressed="true"] { border-color: var(--acc); color: var(--acc); }
+.maptools .inv td { padding: 6px 4px 6px 0; font-size: 11px; }
+
+/* preset picker rows (inside a .modal) */
+.choice { display: block; width: 100%; text-align: left; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--surf); cursor: pointer; }
+.choice:hover { border-color: var(--acc); }
+.choice b { display: block; font-family: var(--font-display); font-weight: 400; font-size: 22px; margin-bottom: 4px; }
+
+/* HUD elements created by js/map.js inside the Cesium container */
+.map-toast { position: absolute; z-index: 5; left: 50%; bottom: 40px; transform: translateX(-50%); max-width: min(560px, calc(100% - 32px));
+  background: var(--bg2); color: var(--text); border: 1px solid var(--acc2); box-shadow: inset 3px 0 0 var(--acc2); border-radius: var(--r-sm);
+  padding: 10px 14px; font-size: 13px; }
+.map-toast.info { border-color: var(--line2); box-shadow: none; }
+.map-readout { position: absolute; z-index: 2; right: 12px; bottom: 36px; background: var(--bg2); border: 1px solid var(--line);
+  border-radius: var(--r-sm); padding: 6px 10px; font-size: var(--fs-small); font-variant-numeric: tabular-nums; pointer-events: none; }
+
 /* ---------- route page ---------- */
 .rhead { display: flex; justify-content: space-between; align-items: flex-end; padding: 30px 28px; border-bottom: 1px solid var(--line);
   gap: 20px; flex-wrap: wrap; }
@@ -257,6 +287,13 @@ img, svg { display: block; max-width: 100%; }
   .bento { grid-template-columns: 1fr; }
   .cell { grid-column: auto !important; }
   .mapwrap { height: 420px; border-right: 0; }
+  .proj { min-height: 0; }
+  .rail { padding: 20px 16px; }
+  /* toolbar drops to bottom right so it doesn't collide with the badge */
+  .maptools { right: 12px; top: auto; bottom: 12px; width: min(260px, calc(100% - 24px)); max-height: calc(100% - 24px); }
+  .nav-top { flex-wrap: wrap; }
+  .mapbadge { left: 12px; top: 12px; }
+  .maplegend { left: 12px; bottom: 12px; }
   .navl { display: none; }
   .nav-top, .rhead { padding-left: 16px; padding-right: 16px; }
   .nav-top { flex-wrap: wrap; }
