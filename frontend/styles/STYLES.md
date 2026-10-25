@@ -38,7 +38,7 @@ element can pin a theme for its subtree (`<section data-theme="light">`). Read t
 | `--line` | `#dee4f521` | `#1a1d1a1f` | hairline dividers, grid lines, empty bar track |
 | `--line2` | `#dee4f540` | `#1a1d1a3a` | control borders (btn, pill, input), dashed empty-state |
 | `--text` | `#edeff6` | `#121512` | primary text, filled button background |
-| `--muted` | `#9aa0b6` | `#6a6f67` * | secondary text, labels |
+| `--muted` | `#9aa0b6` | `#646961` * | secondary text, labels |
 | `--acc` | `#8fb4ff` | `#0f9d6b` | primary accent: selected route, links, emphasis word, focus ring |
 | `--acc2` | `#ff8a5b` | `#e0682b` | warnings and risk: permit risk, fire, `.risk` lines, dates to watch |
 | `--ok` | `#7ef2c4` | `#0f9d6b` | good / not triggered / ready / live |
@@ -57,8 +57,8 @@ element can pin a theme for its subtree (`<section data-theme="light">`). Read t
 Charts use `--series-*`, never `--acc`/`--ok` directly. In light, `--ok` equals `--acc`, so they
 would collide. All four series are mutually distinct in each theme.
 
-\* The spec gives light `--muted` as `#6b7068`, which is 4.49:1 on `--bg` (just under AA). It is
-darkened one step to `#6a6f67` (4.55:1). Everything else is verbatim from the spec/mockup.
+\* The spec gives light `--muted` as `#6b7068`, which is 4.49:1 on `--bg` and 4.13:1 on `--bg2` (under AA). It is
+darkened to `#646961` (4.97:1 on `--bg`, 4.59:1 on `--bg2`). Everything else is verbatim from the spec/mockup.
 
 ### Type
 
@@ -544,11 +544,11 @@ Contrast, WCAG 2 ratios (AA needs 4.5:1 for body-size text, 3:1 for large text â
 | Pair | Dark | Light |
 |---|---|---|
 | `--text` on `--bg` | 17.92 | 16.27 |
-| `--muted` on `--bg` | 7.92 | 4.55 |
-| `--muted` on `--surf` | 7.39 | 4.93 |
+| `--muted` on `--bg` | 7.92 | 4.97 |
+| `--muted` on `--surf` | 7.39 | 5.38 |
 | `--text` on `--surf` | 16.73 | 17.61 |
 | `--text` on `--bg2` | 17.51 | 15.00 |
-| `--muted` on `--bg2` | 7.74 | 4.20 |
+| `--muted` on `--bg2` | 7.74 | 4.59 |
 | `--acc` on `--bg` | 9.94 | 3.07 |
 | `--acc2` on `--bg` | 8.86 | 3.00 |
 | `--ok` on `--bg` | 15.08 | 3.07 |
@@ -558,8 +558,8 @@ Rules that follow:
 - In **light**, `--acc`, `--acc2` and `--ok` reach only 3:1. Use them for large serif text (â‰¥ 24 px),
   borders, fills and icons. Don't put long small text in them. Short pill and `.risk` labels are a
   known compromise from the mockup.
-- In **light**, `--muted` on `--bg2` (HUDs) is 4.20:1. Keep HUD body copy in `--text`; muted is for
-  the mono caption only.
+- `--muted` clears 4.5:1 on `--bg`, `--bg2` and `--surf` in both themes, so it is fine for small
+  secondary text, HUD captions included.
 - **Focus:** every focusable element gets the global `:focus-visible` ring (2 px `--acc`, 2 px
   offset). Don't remove outlines. Clickable cards are `<a>`/`<button>`, or `tabindex="0"` with
   Enter/Space handlers.

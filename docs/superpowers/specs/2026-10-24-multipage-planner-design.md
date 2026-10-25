@@ -127,12 +127,16 @@ Cesium terrain and the no-token fallback · click site → substation and snappi
 One module, `frontend/js/estimates.js`, exports `estimate(routeProps, project)` and returns:
 
 ```
-{ upfront_breakdown, maintenance_per_year, maintenance_breakdown, lifetime_cost_40yr,
+{ upfront_total, upfront_breakdown: {component: usd}, maintenance_per_year,
+  maintenance_breakdown: {component: usd_per_yr}, lifetime_cost_40yr,
   calendar: [{phase, start, end}], energize_date, lead_times: [{item, weeks}],
-  score, top_risk, is_placeholder: true }
+  permits: [{code, reason, months_min, months_max}], score, top_risk,
+  labels: {cheapest_build, fastest}, is_placeholder }
 ```
 
-Values are derived from real route fields (length, towers, OH/UG km, fire km, triggers, parcels) with simple constant rates, so they still move between routes. **If `routeProps.estimates` exists (a future backend field), it is returned as-is.** That's the "easy implementation later" hook: a backend that adds `estimates` to the route JSON replaces every placeholder with no frontend change. Each UI value from this module shows an "est." marker.
+`rankRoutes(estimates)` sets `labels` and `recommended` (highest score) across a project's routes. `route_summary` (in `GET /projects`) carries every field `estimate()` reads, so the dashboard and project page recommend the same route.
+
+Values are derived from real route fields (length, towers, OH/UG km, fire km, triggers, parcels) with simple constant rates, so they still move between routes. **If `routeProps.estimates` exists (a future backend field, full shape above), it is returned as-is (flagged `is_placeholder: false`).** That's the "easy implementation later" hook: a backend that adds `estimates` to the route JSON replaces every placeholder with no frontend change. Each UI value from this module shows an "est." marker.
 
 ## Frontend structure
 

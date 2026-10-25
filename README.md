@@ -134,6 +134,8 @@ python tools/smoke_pages.py --no-server / "/route.html?demo=1"   # static files 
 
 To serve the frontend separately from the API, set `API_BASE: "http://localhost:8000"` in `frontend/config.js` (CORS is open).
 
+**Run it locally only.** CORS allows all origins and the API has unauthenticated mutating endpoints (create/rename/delete projects and routes), so it is a local dev server, not something to deploy. Keep uvicorn bound to `127.0.0.1` (the default); even then, a page open in your browser could call it.
+
 ## Validation against real lines
 
 ```bash

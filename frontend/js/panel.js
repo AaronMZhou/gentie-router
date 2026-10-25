@@ -1,6 +1,7 @@
-/* Route results rendering (ported from app.js renderPanel / renderDemoStory / renderProfile).
+/* Route results rendering (ported from the legacy app.js (removed): renderPanel / renderDemoStory / renderProfile).
    Writes into elements marked data-r="…" under root. */
 export const fmtUsd = (x) => (Math.abs(x) >= 1e6 ? `$${(x / 1e6).toFixed(1)}M` : `$${Math.round(x / 1e3)}k`);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 export const fmtKm = (x) => `${x.toFixed(x < 10 ? 2 : 1)} km`;
 
 export function renderResults(root, p, features, { isDemo = false } = {}) {
@@ -20,7 +21,7 @@ export function renderResults(root, p, features, { isDemo = false } = {}) {
   $("rProt").textContent = p.protected_cells_crossed
     ? `${fmtKm(p.protected_km)} (${p.protected_cells_crossed} cells)` : "none";
   $("rTrans").textContent = `${p.n_transitions} (${fmtUsd(p.transition_cost_usd)})`;
-  const tribalList = (lands) => (lands || []).map((t) => `${t.name} (${fmtKm(t.km)})`).join(", ");
+  const tribalList = (lands) => (lands || []).map((t) => `${esc(t.name)} (${fmtKm(t.km)})`).join(", ");
   $("rTribal").textContent = p.tribal_km ? fmtKm(p.tribal_km) : "none";
   $("tribalNote").hidden = !p.tribal_km;
   $("tribalNote").textContent = p.tribal_km
@@ -55,7 +56,7 @@ export function renderResults(root, p, features, { isDemo = false } = {}) {
       `${p.row.landholder_negotiations_est} (${p.row.private_parcels} parcels${p.row.private_parcels_method.startsWith("est") ? " est." : ""} + ${p.row.public_agreements} agencies)`;
     $("rStructures").textContent = `${p.inventory.tower_count} towers · ${p.inventory.splice_vault_count_est} vaults`;
     $("triggers").innerHTML = (p.permitting_triggers || [])
-      .map((t) => `<li><code>${t.code}</code>${t.reason}</li>`).join("");
+      .map((t) => `<li><code>${esc(t.code)}</code>${esc(t.reason)}</li>`).join("");
   }
   renderProfile($("profile"), $("profEnd"), p.profile || []);
 

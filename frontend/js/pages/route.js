@@ -79,7 +79,7 @@ function page({ fc, route, project, demo }, est) {
   const donutStyle = `--a:${cuts[0] || "100%"};--b:${cuts[1] || "100%"};--c:${cuts[2] || "100%"}`;
   const donutLabel = slices.map(([k, v]) => `${k} ${Math.round((100 * v) / total)}%`).join(", ");
 
-  // inventory (real) + lead times (est.)
+  // inventory (real); lead times (est.) go in the Logistics cell
   const inv = p.inventory || {};
   const invRows = [
     ["Overhead structures", num(towers)],
@@ -134,7 +134,7 @@ function page({ fc, route, project, demo }, est) {
   </div>
   <nav class="tabs tabs--sticky" aria-label="Route sections">
     <a href="#overview" class="is-active" aria-current="true">Overview</a><a href="#costs">Costs</a><a href="#inventory">Inventory</a>
-    <a href="#maintenance">Maintenance</a><a href="#calendar">Calendar</a><a href="#permits">Permits &amp; legal</a><a href="#analysis">Route analysis</a>
+    <a href="#maintenance">Maintenance</a><a href="#calendar">Calendar</a><a href="#permits">Permits &amp; legal</a><a href="#logistics">Logistics</a><a href="#analysis">Route analysis</a>
   </nav>
   <section class="three grid-bg sect" id="overview" aria-label="3D route view">
     <div class="map" id="map"></div>
@@ -182,9 +182,7 @@ function page({ fc, route, project, demo }, est) {
       <h6>Bill of <span class="it">materials</span></h6>
       <table class="inv">
         ${invRows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("")}
-        ${leads.map((l) => `<tr><td>${esc(l.item)} lead time</td><td>${l.weeks} wks${mk("Placeholder lead time")}</td></tr>`).join("")}
       </table>
-      ${leads.length ? `<div class="risk" style="margin-top:14px">▲ ${esc(leads[0].item)} lead time ${leads[0].weeks} wks${mk("Placeholder lead time")}</div>` : ""}
     </div>
     <div class="cell sect" id="maintenance" style="grid-column:span 4"><div class="mono-label">Maintenance ${mk("Placeholder: $ per km and per tower, scaled by voltage")}</div>
       <h6><span class="it">${money(est.maintenance_per_year)}</span>${mk()} a year</h6>
@@ -204,6 +202,13 @@ function page({ fc, route, project, demo }, est) {
     <div class="cell sect" id="permits" style="grid-column:span 5"><div class="mono-label">Permits &amp; legal</div>
       <h6>${est.permits.length} <span class="it">trigger${est.permits.length === 1 ? "" : "s"}</span></h6>
       ${permitRows.join("")}
+    </div>
+    <div class="cell sect" id="logistics" style="grid-column:span 12"><div class="mono-label">Logistics ${mk("Placeholder lead times")}</div>
+      <h6>Procurement <span class="it">lead times</span></h6>
+      <table class="inv" style="max-width:560px">
+        ${leads.map((l) => `<tr><td>${esc(l.item)}</td><td>${l.weeks} wks${mk("Placeholder lead time")}</td></tr>`).join("")}
+      </table>
+      ${leads.length ? `<div class="risk" style="margin-top:14px">▲ ${esc(leads[0].item)} sets the critical path at ${leads[0].weeks} wks${mk("Placeholder lead time")}</div>` : ""}
     </div>
     ${analysisCell()}
   </div>`;

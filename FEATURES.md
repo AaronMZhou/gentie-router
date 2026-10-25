@@ -8,6 +8,7 @@ Snapshot of every feature in Gen-tie Router and how finished it is. Last checked
 |---|---|
 | ✅ Done | Works, tested or verified, nothing needed for the demo |
 | 🔧 Needs tweaks | Works, but has a known gap, rough edge or inconsistency |
+| 🔧 Placeholder | UI works, but the numbers come from placeholder estimates (`frontend/js/estimates.js`, shown as "est."), not a real model |
 | ⚠️ Works, weak result | Code is correct, but the output isn't convincing yet |
 | ⬜ Not started | Referenced or implied, but no code exists |
 

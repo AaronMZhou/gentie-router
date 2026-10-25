@@ -62,6 +62,9 @@ def main():
         s = r["route_summary"]
         assert s["total_km"] > 0 and 2 <= len(s["thumb"]) <= 40 and s["name"] == "Balanced", s
         assert {"id", "name", "preset", "total_km", "total_cost_usd", "tower_count", "n_triggers", "thumb"} <= s.keys()
+        assert {"overhead_km", "underground_km", "n_transitions", "high_fire_km", "overhead_high_fire_km", "protected_km",
+                "tribal_km", "permitting_triggers", "row", "inventory"} <= s.keys(), s.keys()
+        assert all(t.keys() == {"code", "reason"} for t in s["permitting_triggers"]) and "geometry" not in s
         assert r["result"]["type"] == "FeatureCollection"
         p = api("GET", f"/projects/{pid}")[1]
         assert p["start_lonlat"] == SITE and p["end_lonlat"] == CREELMAN, p
