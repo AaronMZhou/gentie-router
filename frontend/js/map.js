@@ -1,5 +1,5 @@
 /* Gen-tie Router Cesium map: viewer, routes, overlays, view modes, fly-along, validation.
-   Ported from app.js with its performance settings; route styling follows styles/STYLES.md §6. */
+   Ported from the legacy app.js (removed) with its performance settings; route styling follows styles/STYLES.md §6. */
 import { fmtKm } from "./panel.js";
 import { cssVar, onThemeChange } from "./theme.js";
 

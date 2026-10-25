@@ -48,8 +48,8 @@
   color-scheme: light;
   --bg: #f3f1ea; --bg2: #ebe8de; --surf: #fbfaf6;
   --line: #1a1d1a1f; --line2: #1a1d1a3a;
-  /* --muted is #6b7068 in the spec; darkened one step to clear 4.5:1 on --bg (4.49 -> 4.55) */
-  --text: #121512; --muted: #6a6f67;
+  /* --muted is #6b7068 in the spec; darkened to clear 4.5:1 on both --bg (4.97) and --bg2 (4.59) */
+  --text: #121512; --muted: #646961;
   --acc: #0f9d6b; --acc2: #e0682b; --ok: #0f9d6b;
   --glow: 0 0 14px #0f9d6b44;
   --mapbg: #e6e3d7; --contour: #0f9d6b26;

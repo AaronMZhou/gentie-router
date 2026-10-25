@@ -1,6 +1,6 @@
 import { initThemeToggle } from "../theme.js";
 import { listProjects, createProject } from "../api.js";
-import { estimate, rankRoutes } from "../estimates.js";
+import { recommendedIndex } from "../estimates.js";
 
 initThemeToggle(document.querySelector(".theme-toggle"));
 
@@ -26,12 +26,9 @@ const h = now.getHours();
 $("greeting").innerHTML = `Good <span class="it acc">${h < 12 ? "morning" : h < 18 ? "afternoon" : "evening"}.</span>`;
 $("portfolio-label").textContent = `Portfolio · ${now.toLocaleDateString("en-US", { month: "short", year: "numeric" })}`;
 
-// Recommended route: the summary has no full props, so rank on what it has (cost, length, towers).
+// Recommended route: route_summary carries every field estimate() reads, so this matches project.js.
 function recommended(project) {
-  if (!project.routes.length) return null;
-  const ests = rankRoutes(project.routes.map((r) =>
-    estimate({ total_cost_usd: r.total_cost_usd, total_km: r.total_km, tower_count: r.tower_count }, project)));
-  return project.routes[ests.findIndex((e) => e.recommended)];
+  return project.routes[recommendedIndex(project.routes, project)] ?? null;
 }
 
 // Every route's thumb projected linearly into the 300x150 box (equirectangular, aspect kept).

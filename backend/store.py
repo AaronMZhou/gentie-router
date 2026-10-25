@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS routes (
 CREATE INDEX IF NOT EXISTS routes_project ON routes(project_id);
 """
 JSON_FIELDS = ("start_lonlat", "end_lonlat")
+EST_KEYS = ("total_km", "total_cost_usd", "tower_count", "overhead_km", "underground_km", "n_transitions",
+            "high_fire_km", "overhead_high_fire_km", "protected_km", "tribal_km", "estimates")
 PROJECT_FIELDS = ("name", "voltage_kv", "phase", "filing_target", *JSON_FIELDS)
 
 
@@ -46,8 +48,12 @@ def route_summary(row):
     if len(pts) > THUMB_POINTS:  # even subsample, keeping both ends
         pts = [pts[round(i * (len(pts) - 1) / (THUMB_POINTS - 1))] for i in range(THUMB_POINTS)]
     p = fc["properties"]
-    return {"id": row["id"], "name": row["name"], "preset": row["preset"], "total_km": p["total_km"],
-            "total_cost_usd": p["total_cost_usd"], "tower_count": p["tower_count"],
+    # Everything frontend/js/estimates.js estimate() reads, so the dashboard ranks routes like the project page.
+    est = {k: p[k] for k in EST_KEYS if k in p}
+    est["permitting_triggers"] = [{"code": t["code"], "reason": t["reason"]} for t in p["permitting_triggers"]]
+    est["row"] = {"private_parcels": (p.get("row") or {}).get("private_parcels", 0)}
+    est["inventory"] = {"conductor_km_est": (p.get("inventory") or {}).get("conductor_km_est", 0)}
+    return {"id": row["id"], "name": row["name"], "preset": row["preset"], **est,
             "n_triggers": len(p["permitting_triggers"]), "thumb": pts}
 
 

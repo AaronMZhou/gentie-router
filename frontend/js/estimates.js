@@ -1,5 +1,13 @@
 // Placeholder estimates derived from real route fields. Every number here is an
 // "est." (is_placeholder: true). A backend `properties.estimates` replaces them all.
+//
+// Estimate shape the pages read (a backend `estimates` must supply all of it; dates are YYYY-MM-DD):
+//   { upfront_total, upfront_breakdown: {component: usd}, maintenance_per_year,
+//     maintenance_breakdown: {component: usd_per_yr}, lifetime_cost_40yr,
+//     calendar: [{phase, start, end}], energize_date, lead_times: [{item, weeks}],
+//     permits: [{code, reason, months_min, months_max}], score, top_risk,
+//     labels: {cheapest_build, fastest}, is_placeholder }
+// rankRoutes() then overwrites `labels` and sets `recommended`; the hook sets is_placeholder: false.
 
 export const RATES = {
   tower_usd: 90000,           // per structure
@@ -142,3 +150,7 @@ export function rankRoutes(estimates) {
   }
   return estimates;
 }
+
+// Index of the recommended route among props objects (full route properties or route summaries); -1 if none.
+export const recommendedIndex = (propsList, project) =>
+  rankRoutes(propsList.map((p) => estimate(p, project))).findIndex((e) => e.recommended);
