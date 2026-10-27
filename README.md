@@ -14,6 +14,7 @@ backend/
   router.py              least-cost path, OH/UG segmentation, stats, baseline
   app.py                 FastAPI: POST /route, GET /bounds, overlays, projects/routes; also serves frontend/
   store.py, seed.py      SQLite project/route store + sample projects
+  mongo_store.py, spatial.py   optional MongoDB store (MONGO_URL) and the spatial queries both stores answer
   test_route.py          stage-2 smoke test (prints routes, writes demo route)
   test_api.py, test_projects.py   API and project-store checks
 frontend/
@@ -26,6 +27,7 @@ frontend/
   js/                    map.js (Cesium), panel.js, api.js, estimates.js, theme.js, pages/*.js
   config.js              your Cesium ion token (git-ignored; see config.example.js)
   demo_route.json        precomputed route for the offline demo (route.html?demo=1)
+engine/                  C++ mode-aware route search (exact path + overhead/underground + 450 m runs); see below
 tools/smoke_pages.py     headless-Chrome page smoke test
 config.py                region, grid, data URLs, every cost weight and the strategy presets
 ```
@@ -176,6 +178,28 @@ Why the separate `geometry` field: a FeatureCollection isn't a geometry 2dsphere
 Every method returns the same routes (index vs collection scan, `$geoNear` vs a circle polygon, MongoDB's spherical geometry vs shapely in UTM). The index pays off when the query is selective: 10× on the 0.5 km query, but only 1.3× around a substation that a third of all routes end at, where most documents have to be fetched anyway. Timings are from one laptop with MongoDB inside Docker's VM; expect different absolute numbers elsewhere.
 
 Tests: `python -m backend.test_projects` (SQLite) and `python -m backend.test_projects --mongo` run the same API checks, including the spatial endpoints; the MongoDB run uses throwaway databases and drops them.
+
+## Mode-aware search engine (C++)
+
+The production router picks the path assuming overhead/underground switching is free, then assigns modes and charges transitions afterwards. [engine/](engine/) is a C++ engine that makes the mode and the 450 m minimum-run rule part of the search itself. It runs exact A* over about 95M (cell, mode, run length) states, with ALT landmark bounds and a radix heap, and is called from Python via ctypes.
+
+- On the fire-aware presets, the old pipeline's routes come out 16–21% worse than the exact optimum, on the objective both search (300 routes each, like-for-like).
+- *Prefer underground*: 10% lower construction cost and 7.2 → 1.4 transitions per route.
+- *Avoid fire*: overhead line through high-hazard areas falls from 86 km to 6 km.
+- On *Balanced*, which almost never switches mode, it changes about 0.2%.
+- With the 450 m rule, ALT takes a search from 27 s (Dijkstra, 42.5M states) to 1.1 ms (1,234 states) for routes to a substation.
+
+The engine is checked against scikit-image, an independent SciPy two-layer graph and a pure-Python constrained search. It isn't wired into `/route` yet: it needs about 570 MB per engine instance, which doesn't fit the API's 8 route workers.
+
+```bash
+pip install ziglang                 # C++ toolchain, no admin rights or system compiler needed
+python -m engine.build              # -> engine/_build/ (also built automatically on first use); $CXX overrides
+python -m engine.test_engine        # correctness checks (~5 min)
+python -m engine.compare --n 300    # production vs exact optimum per preset (~10 min)
+python -m engine.bench_engine       # search speed (~5 min)
+```
+
+Design and correctness arguments: [engine/DESIGN.md](engine/DESIGN.md). Every number and caveat: [engine/RESULTS.md](engine/RESULTS.md).
 
 ## Validation against real lines
 
@@ -371,7 +395,7 @@ routing     = combined × 1000 on protected land (near-impassable) × 10 on trib
 | GAP 3 public land | ×1.25 | ×1.25 |
 | Tribal land (routing penalty only) | ×10 | ×10 |
 | Protected land inside an existing power-line easement (routing penalty) | ×3 instead of ×1000 | same |
-| OH↔UG transition (post-hoc) | $750k each | |
+| OH↔UG transition (post-hoc; [engine/](engine/) makes it part of the search) | $750k each | |
 
 Routing uses `skimage.graph.route_through_array` (8-connected, geometric distances) on the combined grid. A string-pulling pass then replaces grid zig-zags with straight spans wherever a span costs no more than 1% above the path it replaces. The raw path's per-cell modes are smoothed: any overhead or underground run shorter than 450 m is merged into its neighbours. The path is then split into contiguous runs, and each run is simplified (20 m tolerance) and costed with its chosen mode. Transition structures are added on top of that cost.
 

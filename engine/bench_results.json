@@ -1,0 +1,160 @@
+{
+  "grid": [
+    1001,
+    1030
+  ],
+  "python": "3.13.12",
+  "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+  "os": "Windows-11-10.0.26200-SP0",
+  "tree": {
+    "engine_radix": 85.84159999736585,
+    "engine_binary": 138.10760001069866,
+    "skimage_mcp_geometric": 878.5064999829046
+  },
+  "route": [
+    {
+      "pairs": "to substation",
+      "min_run_m": 0.0,
+      "heuristic": "dijkstra",
+      "heap": "binary",
+      "n": 12,
+      "ms_median": 315.39250000787433,
+      "expanded_median": 567813.5
+    },
+    {
+      "pairs": "to substation",
+      "min_run_m": 0.0,
+      "heuristic": "dijkstra",
+      "heap": "radix",
+      "n": 12,
+      "ms_median": 212.42340000753757,
+      "expanded_median": 567813.5
+    },
+    {
+      "pairs": "to substation",
+      "min_run_m": 0.0,
+      "heuristic": "octile",
+      "heap": "radix",
+      "n": 12,
+      "ms_median": 116.13465000118595,
+      "expanded_median": 295018.0
+    },
+    {
+      "pairs": "to substation",
+      "min_run_m": 0.0,
+      "heuristic": "alt",
+      "heap": "radix",
+      "n": 12,
+      "ms_median": 0.5425499984994531,
+      "expanded_median": 595.5
+    },
+    {
+      "pairs": "to substation",
+      "min_run_m": 450.0,
+      "heuristic": "dijkstra",
+      "heap": "binary",
+      "n": 4,
+      "ms_median": 53212.47625000251,
+      "expanded_median": 42471623.0
+    },
+    {
+      "pairs": "to substation",
+      "min_run_m": 450.0,
+      "heuristic": "dijkstra",
+      "heap": "radix",
+      "n": 4,
+      "ms_median": 27196.188300003996,
+      "expanded_median": 42471620.5
+    },
+    {
+      "pairs": "to substation",
+      "min_run_m": 450.0,
+      "heuristic": "octile",
+      "heap": "radix",
+      "n": 12,
+      "ms_median": 5926.491000005626,
+      "expanded_median": 10354669.0
+    },
+    {
+      "pairs": "to substation",
+      "min_run_m": 450.0,
+      "heuristic": "alt",
+      "heap": "radix",
+      "n": 12,
+      "ms_median": 1.0922000074060634,
+      "expanded_median": 1234.5
+    },
+    {
+      "pairs": "arbitrary cells",
+      "min_run_m": 0.0,
+      "heuristic": "dijkstra",
+      "heap": "binary",
+      "n": 12,
+      "ms_median": 395.74934999109246,
+      "expanded_median": 725350.0
+    },
+    {
+      "pairs": "arbitrary cells",
+      "min_run_m": 0.0,
+      "heuristic": "dijkstra",
+      "heap": "radix",
+      "n": 12,
+      "ms_median": 279.2776499845786,
+      "expanded_median": 725350.0
+    },
+    {
+      "pairs": "arbitrary cells",
+      "min_run_m": 0.0,
+      "heuristic": "octile",
+      "heap": "radix",
+      "n": 12,
+      "ms_median": 170.96909999963827,
+      "expanded_median": 420441.0
+    },
+    {
+      "pairs": "arbitrary cells",
+      "min_run_m": 0.0,
+      "heuristic": "alt",
+      "heap": "radix",
+      "n": 12,
+      "ms_median": 12.507200008258224,
+      "expanded_median": 27484.0
+    },
+    {
+      "pairs": "arbitrary cells",
+      "min_run_m": 450.0,
+      "heuristic": "dijkstra",
+      "heap": "binary",
+      "n": 4,
+      "ms_median": 47014.33610000822,
+      "expanded_median": 37499370.5
+    },
+    {
+      "pairs": "arbitrary cells",
+      "min_run_m": 450.0,
+      "heuristic": "dijkstra",
+      "heap": "radix",
+      "n": 4,
+      "ms_median": 24381.35000001057,
+      "expanded_median": 37499373.0
+    },
+    {
+      "pairs": "arbitrary cells",
+      "min_run_m": 450.0,
+      "heuristic": "octile",
+      "heap": "radix",
+      "n": 12,
+      "ms_median": 10213.793000017176,
+      "expanded_median": 15446146.5
+    },
+    {
+      "pairs": "arbitrary cells",
+      "min_run_m": 450.0,
+      "heuristic": "alt",
+      "heap": "radix",
+      "n": 12,
+      "ms_median": 66.58814998809248,
+      "expanded_median": 106464.5
+    }
+  ]
+}
