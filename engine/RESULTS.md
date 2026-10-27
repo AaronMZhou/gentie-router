@@ -55,6 +55,19 @@ constrained Dijkstra, ~25 s each). "To substation" has a landmark at the goal; "
   into the exact free-switching distance (the tree production already precomputes). Without it, the gain is 366×.
 - **Radix vs binary heap:** 1.5–2× on the same expansions.
 
+**On the fire-aware presets** (where mode-aware search matters; [bench_fire_presets.json](bench_fire_presets.json)), with
+the 450 m rule, 5 routes to substations each, same engine, ALT cost == Dijkstra cost on every route:
+
+| Preset | Dijkstra, median | A* + ALT, median | Speedup (median; per-route range) |
+|---|---:|---:|---:|
+| Avoid fire | 4.7 s / 25.8M states | 72 ms / 0.43M states | 66× (18–170×) |
+| Prefer underground | 4.8 s / 28.1M states | 81 ms / 0.56M states | 60× (21–200×) |
+
+The landmark bound is looser here than on balanced weights (the free-switching relaxation is ~16–21% below the
+real optimum), so A* expands more states than the 1,234 above. These are also the cases where the engine is
+**slower than the production pipeline** (~53 ms, which solves the easier free-switching problem): it trades
+~4–6× more search time for routes that are 16–21% better on the preset's objective.
+
 **Single-source tree** on the free-switching grid (1.03M cells), the same computation as scikit-image's
 `MCP_Geometric.find_costs`, verified equal:
 

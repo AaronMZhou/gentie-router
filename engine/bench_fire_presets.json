@@ -1,0 +1,24 @@
+{
+  "avoid_fire": {
+    "dijkstra": {
+      "ms_median": 4748.107599996729,
+      "expanded_median": 25788859
+    },
+    "alt": {
+      "ms_median": 71.75440000719391,
+      "expanded_median": 426484
+    },
+    "n": 5
+  },
+  "underground": {
+    "dijkstra": {
+      "ms_median": 4794.127100001788,
+      "expanded_median": 28104473
+    },
+    "alt": {
+      "ms_median": 80.56800000485964,
+      "expanded_median": 562984
+    },
+    "n": 5
+  }
+}
