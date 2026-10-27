@@ -49,3 +49,8 @@ export const deleteRoute = (id) => apiSend("DELETE", `/routes/${id}`);
 let assumptions;
 export const getAssumptions = () => (assumptions ??= apiGet("/assumptions").catch((e) => { assumptions = undefined; throw e; }));
 export const getStats = () => apiGet("/stats");
+export const getOverlay = (name) => apiGet(`/overlays/${name}`);
+
+// Spatial queries over saved routes (MongoDB 2dsphere when the server runs with MONGO_URL, else a SQLite scan)
+export const routesNear = (lon, lat, km = 2) => apiGet(`/spatial/routes-near?lon=${lon}&lat=${lat}&km=${km}`);
+export const tribalCrossings = () => apiGet("/spatial/tribal-crossings");

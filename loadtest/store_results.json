@@ -1,0 +1,161 @@
+{
+  "env": {
+    "routes": 5000,
+    "projects": 1000,
+    "mongodb": "8.0.34 (Docker)",
+    "sqlite_file_mb": 71.9,
+    "mongo_routes_storage_mb": 49.2,
+    "mongo_routes_avg_doc_kb": 23.8,
+    "python": "3.13.12",
+    "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+    "os": "Windows-11-10.0.26200-SP0",
+    "date": "2026-10-27T13:33:36+00:00",
+    "load_seconds": {
+      "mongodb": 20.0,
+      "sqlite": 27.7
+    }
+  },
+  "rows": [
+    {
+      "query": "routes within 2 km of Santa Ysabel Substation",
+      "method": "MongoDB $geoIntersects, 2dsphere index",
+      "p50_ms": 417.92,
+      "p95_ms": 426.32,
+      "reps": 48,
+      "results": 3166,
+      "plan": "IXSCAN",
+      "docs_examined": 3269,
+      "keys_examined": 14540,
+      "returned": 3166
+    },
+    {
+      "query": "routes within 2 km of Santa Ysabel Substation",
+      "method": "MongoDB $geoIntersects, no index",
+      "p50_ms": 550.81,
+      "p95_ms": 556.24,
+      "reps": 37,
+      "results": 3166,
+      "plan": "COLLSCAN",
+      "docs_examined": 5000,
+      "keys_examined": 0,
+      "returned": 3166
+    },
+    {
+      "query": "routes within 2 km of Santa Ysabel Substation",
+      "method": "MongoDB $geoNear endpoint (sorted + joined)",
+      "p50_ms": 354.98,
+      "p95_ms": 397.45,
+      "reps": 50,
+      "results": 3166
+    },
+    {
+      "query": "routes within 2 km of Santa Ysabel Substation",
+      "method": "SQLite + shapely brute force endpoint",
+      "p50_ms": 1975.8,
+      "p95_ms": 2606.62,
+      "reps": 10,
+      "results": 3166
+    },
+    {
+      "query": "routes within 0.5 km of a spot (33.08, -116.78)",
+      "method": "MongoDB $geoIntersects, 2dsphere index",
+      "p50_ms": 46.02,
+      "p95_ms": 48.3,
+      "reps": 50,
+      "results": 283,
+      "plan": "IXSCAN",
+      "docs_examined": 359,
+      "keys_examined": 421,
+      "returned": 283
+    },
+    {
+      "query": "routes within 0.5 km of a spot (33.08, -116.78)",
+      "method": "MongoDB $geoIntersects, no index",
+      "p50_ms": 469.01,
+      "p95_ms": 479.1,
+      "reps": 43,
+      "results": 283,
+      "plan": "COLLSCAN",
+      "docs_examined": 5000,
+      "keys_examined": 0,
+      "returned": 283
+    },
+    {
+      "query": "routes within 0.5 km of a spot (33.08, -116.78)",
+      "method": "MongoDB $geoNear endpoint (sorted + joined)",
+      "p50_ms": 31.84,
+      "p95_ms": 43.79,
+      "reps": 50,
+      "results": 283
+    },
+    {
+      "query": "routes within 0.5 km of a spot (33.08, -116.78)",
+      "method": "SQLite + shapely brute force endpoint",
+      "p50_ms": 2323.6,
+      "p95_ms": 2583.69,
+      "reps": 9,
+      "results": 283
+    },
+    {
+      "query": "routes crossing Santa Ysabel Reservation",
+      "method": "MongoDB $geoIntersects, 2dsphere index",
+      "p50_ms": 96.29,
+      "p95_ms": 100.88,
+      "reps": 50,
+      "results": 719,
+      "plan": "IXSCAN",
+      "docs_examined": 1315,
+      "keys_examined": 7242,
+      "returned": 719
+    },
+    {
+      "query": "routes crossing Santa Ysabel Reservation",
+      "method": "MongoDB $geoIntersects, no index",
+      "p50_ms": 263.1,
+      "p95_ms": 270.21,
+      "reps": 50,
+      "results": 719,
+      "plan": "COLLSCAN",
+      "docs_examined": 5000,
+      "keys_examined": 0,
+      "returned": 719
+    },
+    {
+      "query": "routes crossing any tribal land (6)",
+      "method": "MongoDB endpoint (2dsphere, per land)",
+      "p50_ms": 302.85,
+      "p95_ms": 330.96,
+      "reps": 50,
+      "results": 1050
+    },
+    {
+      "query": "routes crossing any tribal land (6)",
+      "method": "SQLite + shapely brute force endpoint",
+      "p50_ms": 1980.12,
+      "p95_ms": 2293.82,
+      "reps": 10,
+      "results": 1050
+    },
+    {
+      "query": "list all 1000 projects + route summaries",
+      "method": "MongoDB (summaries stored at write time)",
+      "p50_ms": 239.99,
+      "p95_ms": 309.97,
+      "reps": 50,
+      "results": 1000
+    },
+    {
+      "query": "list all 1000 projects + route summaries",
+      "method": "SQLite (re-parses every route's JSON)",
+      "p50_ms": 901.58,
+      "p95_ms": 1225.73,
+      "reps": 23,
+      "results": 1000
+    }
+  ],
+  "agreement": {
+    "near_mongo_vs_shapely": "3216 common, 0 only MongoDB, 0 only shapely",
+    "near_circle_vs_geoNear": "3449 common, 0 differ",
+    "tribal_mongo_vs_shapely": "1050/1050 shapely routes match; 0 only MongoDB"
+  }
+}

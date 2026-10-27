@@ -3,11 +3,17 @@ SQLite project/route store (stdlib sqlite3, one connection per call, WAL).
 
 Projects hold the endpoints; each route stores its full /route FeatureCollection as JSON.
 Project dicts carry `routes`: a list of route summaries (no full GeoJSON).
+
+open_store() picks this or backend.mongo_store.MongoStore (when MONGO_URL is set); both have the
+same interface, including the spatial queries, which this store answers by brute force with shapely.
 """
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
+
+from backend import spatial
 
 THUMB_POINTS = 40
 SCHEMA = """
@@ -38,6 +44,18 @@ EST_KEYS = ("total_km", "total_cost_usd", "tower_count", "overhead_km", "undergr
 PROJECT_FIELDS = ("name", "voltage_kv", "phase", "filing_target", *JSON_FIELDS)
 
 
+class ProjectNotFound(LookupError):
+    """add_route on a project that doesn't exist (or was deleted while the route was computing)."""
+
+
+def open_store():
+    if url := os.getenv("MONGO_URL"):
+        from backend.mongo_store import MongoStore
+        return MongoStore(url, os.getenv("MONGO_DB", "gentie"))
+    import config as C
+    return Store(os.getenv("GENTIE_DB", C.PROJECTS_DB))
+
+
 def _now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -58,6 +76,8 @@ def route_summary(row):
 
 
 class Store:
+    kind = "sqlite"
+
     def __init__(self, path):
         self.path = str(path)
         with self._db() as con:
@@ -120,10 +140,13 @@ class Store:
     # ---- routes
     def add_route(self, project_id, name, preset, result):
         now = _now()
-        with self._db() as con:
-            id = con.execute("INSERT INTO routes (project_id, name, preset, result_json, created_at) VALUES (?, ?, ?, ?, ?)",
-                             (project_id, name, preset, json.dumps(result, separators=(",", ":")), now)).lastrowid
-            con.execute("UPDATE projects SET updated_at = ? WHERE id = ?", (now, project_id))
+        try:
+            with self._db() as con:
+                id = con.execute("INSERT INTO routes (project_id, name, preset, result_json, created_at) VALUES (?, ?, ?, ?, ?)",
+                                 (project_id, name, preset, json.dumps(result, separators=(",", ":")), now)).lastrowid
+                con.execute("UPDATE projects SET updated_at = ? WHERE id = ?", (now, project_id))
+        except sqlite3.IntegrityError:
+            raise ProjectNotFound(project_id) from None
         return route_summary({"id": id, "name": name, "preset": preset, "result_json": result})
 
     def get_route(self, id):
@@ -159,3 +182,22 @@ class Store:
     def replace_route_result(self, id, result):
         with self._db() as con:
             con.execute("UPDATE routes SET result_json = ? WHERE id = ?", (json.dumps(result, separators=(",", ":")), id))
+
+    # ---- spatial (brute force: parse every stored route, measure in UTM metres)
+    def _lines(self):
+        with self._db() as con:
+            rows = con.execute("SELECT r.id, r.project_id, r.name, r.preset, r.result_json, p.name AS project_name "
+                               "FROM routes r JOIN projects p ON p.id = r.project_id").fetchall()
+        meta = {r["id"]: (r["project_id"], r["project_name"], route_summary(r)) for r in rows}
+        lines = {r["id"]: spatial.to_utm(spatial.route_line(json.loads(r["result_json"]))) for r in rows}
+        return meta, lines
+
+    def routes_near(self, lon, lat, max_km, limit=50):
+        meta, lines = self._lines()
+        return [{**meta[i][2], "project_id": meta[i][0], "project_name": meta[i][1], "distance_km": round(d, 3)}
+                for i, d in spatial.near(lines, lon, lat, max_km)[:limit]]
+
+    def tribal_crossings(self):
+        meta, lines = self._lines()
+        return [{**meta[i][2], "project_id": meta[i][0], "project_name": meta[i][1], "tribal_lands": names}
+                for i, names in sorted(spatial.crossings(lines).items())]

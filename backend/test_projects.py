@@ -1,8 +1,11 @@
 """
 Project store + project/route API checks against a real server process.
 
-    python -m backend.test_projects      # starts uvicorn on :8766 with ROUTE_WORKERS=2 and a temp DB
+    python -m backend.test_projects          # starts uvicorn on :8766 with ROUTE_WORKERS=2 and a temp SQLite DB
+    python -m backend.test_projects --mongo  # same checks against MongoDB (MONGO_URL, default localhost:27017),
+                                             # in throwaway databases that are dropped afterwards
 """
+import argparse
 import os
 import subprocess
 import sys
@@ -19,8 +22,18 @@ CREELMAN = [-116.85294, 33.01815]
 SANTA_YSABEL = [-116.67105, 33.11051]
 
 
+MONGO_URL = None  # set by --mongo
+
+
+def mongo_db_name(db):
+    return f"gentie_test_{os.getpid()}_{Path(db).stem}"
+
+
 def start_server(db, seed=False):
     env = {**os.environ, "ROUTE_WORKERS": "2", "GENTIE_DB": str(db)}
+    env.pop("MONGO_URL", None)
+    if MONGO_URL:
+        env.update(MONGO_URL=MONGO_URL, MONGO_DB=mongo_db_name(db))
     env.pop("GENTIE_NO_SEED", None)
     if not seed:
         env["GENTIE_NO_SEED"] = "1"
@@ -47,10 +60,18 @@ def api(method, path, body=None):
 
 
 def main():
+    global MONGO_URL
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--mongo", action="store_true")
+    if ap.parse_args().mongo:
+        MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
     tmp = Path(tempfile.mkdtemp())
     db = tmp / "projects.db"
     proc = start_server(db)
     try:
+        store = api("GET", "/stats")[1]["store"]
+        assert store == ("mongodb" if MONGO_URL else "sqlite"), store
+        print(f"0. store backend: {store}")
         code, p = api("POST", "/projects", {"name": "Test Solar", "voltage_kv": 138, "phase": "drafting", "filing_target": "2026-12-01"})
         assert code == 201 and p["routes"] == [] and p["start_lonlat"] is None and p["filing_target"] == "2026-12-01", (code, p)
         pid = p["id"]
@@ -69,6 +90,17 @@ def main():
         p = api("GET", f"/projects/{pid}")[1]
         assert p["start_lonlat"] == SITE and p["end_lonlat"] == CREELMAN, p
         print(f"2. first route with endpoints -> 201, {s['total_km']} km, {len(s['thumb'])} thumb pts, endpoints saved")
+
+        near = api("GET", f"/spatial/routes-near?lon={CREELMAN[0]}&lat={CREELMAN[1]}&km=0.5")[1]
+        hit = [x for x in near if x["id"] == s["id"]]
+        assert hit and hit[0]["distance_km"] < 0.05 and hit[0]["project_name"] == "Test Solar", near
+        assert hit[0]["total_cost_usd"] == s["total_cost_usd"] and hit[0]["thumb"] == s["thumb"]
+        far = api("GET", f"/spatial/routes-near?lon={SANTA_YSABEL[0] + 0.15}&lat={SANTA_YSABEL[1] + 0.08}&km=0.2")[1]
+        assert all(x["id"] != s["id"] for x in far), far
+        assert api("GET", "/spatial/routes-near?lon=-116.8&lat=33&km=0")[0] == 422
+        crossing = api("GET", "/spatial/tribal-crossings")[1]
+        assert all(x["tribal_lands"] for x in crossing)
+        print(f"2b. routes-near Creelman finds it at {hit[0]['distance_km']} km; tribal-crossings -> {len(crossing)} routes")
 
         code, r2 = api("POST", f"/projects/{pid}/routes", {"preset": "avoid_fire"})
         assert code == 201 and r2["route_summary"]["name"] == "Avoid fire", (code, r2)
@@ -142,9 +174,24 @@ def main():
             print(f"    {x['name']} ({x['voltage_kv']} kV, {x['phase']}, filing {x['filing_target']}): " +
                   ", ".join(f"{r['preset']} {r['total_km']} km ${r['total_cost_usd'] / 1e6:.1f}M" for r in x["routes"]))
         print(f"11. fresh DB with seeding -> 4 projects, 11 routes (server ready in {boot:.1f}s)")
-        print("\nALL PROJECT CHECKS PASSED")
+
+        crossing = api("GET", "/spatial/tribal-crossings")[1]
+        for x in crossing:
+            print(f"    crosses tribal land: {x['project_name']} / {x['name']}: {', '.join(x['tribal_lands'])} "
+                  f"(router's raster tribal_km {x['tribal_km']})")
+        near = api("GET", f"/spatial/routes-near?lon={SANTA_YSABEL[0]}&lat={SANTA_YSABEL[1]}&km=2")[1]
+        assert {x["project_name"] for x in near} >= {"Santa Ysabel Reinforcement", "Julian Wind Interconnect"}, near
+        assert [x["distance_km"] for x in near] == sorted(x["distance_km"] for x in near)
+        print(f"12. seeded: {len(crossing)} routes cross tribal land; {len(near)} routes within 2 km of Santa Ysabel Sub")
+        print(f"\nALL PROJECT CHECKS PASSED ({store})")
     finally:
         proc.kill()
+        if MONGO_URL:
+            import pymongo
+            client = pymongo.MongoClient(MONGO_URL)
+            for name in client.list_database_names():
+                if name.startswith(f"gentie_test_{os.getpid()}_"):
+                    client.drop_database(name)
 
 
 if __name__ == "__main__":

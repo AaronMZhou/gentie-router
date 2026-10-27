@@ -1,5 +1,5 @@
 import { initThemeToggle } from "../theme.js";
-import { listProjects, createProject } from "../api.js";
+import { listProjects, createProject, getOverlay, getStats, routesNear, tribalCrossings } from "../api.js";
 import { recommendedIndex } from "../estimates.js";
 
 initThemeToggle(document.querySelector(".theme-toggle"));
@@ -107,6 +107,29 @@ async function load() {
   }
 }
 
+// Spatial checks across every saved route: answered by the store (MongoDB 2dsphere queries, or a SQLite scan).
+// Optional: if any call fails the section just stays hidden.
+async function loadSpatial() {
+  try {
+    const [crossing, subs, stats] = await Promise.all([tribalCrossings(), getOverlay("substations"), getStats()]);
+    const near = await Promise.all(subs.features.map((f) => routesNear(...f.geometry.coordinates, 2)));
+    $("sp-store").textContent = stats.store === "mongodb" ? "MongoDB 2dsphere" : "SQLite scan";
+    const link = (r) => `<a href="project.html?id=${r.project_id}">${esc(r.project_name)}</a> · ${esc(r.name)}`;
+    $("sp-tribal").innerHTML = crossing.length
+      ? crossing.map((r) => `<tr><td>${link(r)}<div class="mono-label">${r.tribal_lands.map(esc).join(", ")}</div></td>
+          <td>${r.tribal_km > 0 ? `${r.tribal_km} km` : "edge"}</td></tr>`).join("")
+      : `<tr><td class="muted">No saved route crosses tribal land.</td><td></td></tr>`;
+    $("sp-subs").innerHTML = subs.features.map((f, i) => {
+      const projects = new Set(near[i].map((r) => r.project_id)).size;
+      return `<tr><td>${esc(f.properties.name)}<div class="mono-label">${esc(f.properties.voltage_label || "")}</div></td>
+        <td>${near[i].length} route${near[i].length === 1 ? "" : "s"} · ${projects} project${projects === 1 ? "" : "s"}</td></tr>`;
+    }).join("");
+    $("spatial").hidden = false;
+  } catch {
+    $("spatial").hidden = true;
+  }
+}
+
 // New-project modal
 const modal = $("new-project-modal");
 const form = modal.querySelector("form");
@@ -144,5 +167,5 @@ form.addEventListener("submit", async (e) => {
   }
 });
 
-await load();
+await Promise.all([load(), loadSpatial()]);
 document.documentElement.dataset.ready = "1";

@@ -84,14 +84,15 @@ Open **http://localhost:8000**. The backend serves the frontend too, so this one
 
 | Environment variable | Effect |
 |---|---|
-| `GENTIE_DB` | project store path (default `data/projects.db`, git-ignored) |
+| `MONGO_URL` | use the MongoDB project store, e.g. `mongodb://localhost:27017` (see [Project store](#project-store-sqlite-or-mongodb)); `MONGO_DB` names the database (default `gentie`) |
+| `GENTIE_DB` | SQLite project store path when `MONGO_URL` is unset (default `data/projects.db`, git-ignored) |
 | `GENTIE_NO_SEED=1` | don't create the sample projects in an empty store |
 | `ROUTE_WORKERS`, `ROUTE_CACHE_SIZE` | routing worker processes (default 8; 0 = inline) and cached responses (default 1024) |
 
 **Pages**
 
 - **Landing** (`/`): what the tool does. "Start a project" goes to the dashboard; "Watch a route get built" opens the offline demo.
-- **Dashboard** (`dashboard.html`): a card per project with a route thumbnail and phase, plus KPIs. **+ Start a project** asks for a name, voltage and phase, then opens the project page in pick mode.
+- **Dashboard** (`dashboard.html`): a card per project with a route thumbnail and phase, plus KPIs and two portfolio-wide spatial checks: which saved routes cross tribal land (and which reservation), and how many saved routes come within 2 km of each substation. **+ Start a project** asks for a name, voltage and phase, then opens the project page in pick mode.
 - **Project** (`project.html?id=…`): every candidate route on one Cesium map, with a card rail beside it. Click once to place the **project site**, then again to place the **substation**; clicking a purple substation marker snaps to it, and a click outside the dashed study region shows a toast. **+ Add route** computes another route with a strategy preset; cards can be renamed or deleted; **Change endpoints** re-picks both points and recomputes every route; **Project ⋯** edits the name, phase and filing target or deletes the project. The **Layers · view** HUD has the view switch, terrain height, every overlay toggle and **Compare to real line**.
 - **Route** (`route.html?id=…`): a 3D hero with the flowing route line, **▶ Fly along**, a layers HUD, the data badge (amber when any layer is synthetic) and a hover/click segment callout; then costs, inventory, maintenance, deployment calendar, permits & legal, a **Supply chain** simulation (`POST /inventory`: long-lead order plan, on-time odds, links to mock supplier bids), **Weather** (Open-Meteo forecast and 3-month outlook along the route: `/weather/route`, `/weather/outlook`), and the full route analysis (every results metric, right-of-way, vs-straight table, elevation profile, segments, the cost-assumption note from `/assumptions`, camera help). **Export packet** downloads the route + estimate as JSON; **Mark for filing** sets the project phase to ready.
 - **Demo** (`route.html?demo=1`): the route page on `demo_route.json` with no API calls, plus the "About this demo" card.
@@ -137,6 +138,45 @@ To serve the frontend separately from the API, set `API_BASE: "http://localhost:
 
 **Run it locally only.** CORS allows all origins and the API has unauthenticated mutating endpoints (create/rename/delete projects and routes), so it is a local dev server, not something to deploy. Keep uvicorn bound to `127.0.0.1` (the default); even then, a page open in your browser could call it.
 
+## Project store: SQLite or MongoDB
+
+Projects and saved routes go to **SQLite** by default (`data/projects.db`, nothing to install). Set `MONGO_URL` to use **MongoDB** instead. Both stores sit behind the same interface (`backend/store.py` `open_store()`), so the API and pages behave identically; `/stats` reports which one is running.
+
+```bash
+pip install -r requirements.txt          # includes pymongo (only imported when MONGO_URL is set)
+docker compose up -d mongo               # MongoDB 8.0 on 127.0.0.1:27017, data in the gentie-mongo-data volume
+MONGO_URL=mongodb://localhost:27017 python -m uvicorn backend.app:app --port 8000
+# PowerShell: $env:MONGO_URL="mongodb://localhost:27017"; python -m uvicorn backend.app:app --port 8000
+```
+
+**Document model** (`backend/mongo_store.py`):
+
+| Collection | Document | Indexes |
+|---|---|---|
+| `projects` | `{_id: int, name, voltage_kv, phase, start_lonlat, end_lonlat, filing_target, created_at, updated_at}` | `_id` |
+| `routes` | `{_id: int, project_id, name, preset, created_at, result, geometry, summary}`. `result` is the full `POST /route` FeatureCollection stored as a document; `geometry` is the route as one 2D LineString; `summary` is the dashboard summary, computed once at write time | `project_id`; `geometry` **2dsphere** |
+| `tribal_lands` | `{_id: name, geometry}` from `overlays/tribal.geojson` (cleaned with shapely `make_valid`, CCW shells), refreshed on start | `geometry` 2dsphere |
+| `substations` | `{_id: name, owner, voltage_label, geometry}` from `overlays/substations.geojson` | `geometry` 2dsphere |
+| `counters` | `{_id: collection, seq}`: integer ids, which the API and frontend use | |
+
+Why the separate `geometry` field: a FeatureCollection isn't a geometry 2dsphere can index, so each route also stores its segments chained into one LineString (consecutive duplicate vertices dropped, which 2dsphere rejects). Weather backfills (`set_route_weather`) are single-document `$set`s, so they can't overwrite a route recomputed meanwhile. A standalone `mongod` has no multi-document transactions, so `add_route` checks the project, inserts, and re-checks, removing its route if the project was deleted in between.
+
+**Spatial queries** (`GET /spatial/routes-near`, `GET /spatial/tribal-crossings`; the dashboard's "spatial checks" section uses both): MongoDB answers them with `$geoNear` (distance-sorted, project names joined with `$lookup`) and `$geoIntersects` against each tribal polygon. The SQLite store answers the same questions by parsing every stored route and measuring in UTM metres with shapely (`backend/spatial.py`). The vector check is stricter than the router's 30 m raster: in the seeded data it flags a "Prefer underground" route that clips the edge of the Santa Ysabel Reservation where the raster's `tribal_km` is 0 (the dashboard shows it as "edge").
+
+**Benchmark** (`python -m loadtest.bench_store`, full table in [loadtest/STORE_RESULTS.md](loadtest/STORE_RESULTS.md)): 5,000 **generated** routes (random sites routed by the real router to the three substations with random presets) in 1,000 projects, the same data loaded into both stores. MongoDB 8.0 in Docker on Windows 11; p50 latency of the store call:
+
+| Query | MongoDB, 2dsphere | MongoDB, same query without the index | SQLite + shapely scan |
+|---|---:|---:|---:|
+| Routes within 0.5 km of a spot (283 of 5,000 match) | 46 ms (`$geoIntersects`, 359 docs examined); endpoint with `$geoNear` 32 ms | 469 ms (`COLLSCAN`, 5,000 docs) | 2,324 ms |
+| Routes within 2 km of Santa Ysabel Substation (3,166 match) | 418 ms; endpoint 355 ms | 551 ms | 1,976 ms |
+| Routes crossing Santa Ysabel Reservation (719 match) | 96 ms (1,315 docs examined) | 263 ms | |
+| Routes crossing any of the 6 tribal lands (1,050 match) | 303 ms (endpoint) | | 1,980 ms |
+| List 1,000 projects with route summaries | 240 ms (summaries stored at write time) | | 902 ms (re-parses every route) |
+
+Every method returns the same routes (index vs collection scan, `$geoNear` vs a circle polygon, MongoDB's spherical geometry vs shapely in UTM). The index pays off when the query is selective: 10× on the 0.5 km query, but only 1.3× around a substation that a third of all routes end at, where most documents have to be fetched anyway. Timings are from one laptop with MongoDB inside Docker's VM; expect different absolute numbers elsewhere.
+
+Tests: `python -m backend.test_projects` (SQLite) and `python -m backend.test_projects --mongo` run the same API checks, including the spatial endpoints; the MongoDB run uses throwaway databases and drops them.
+
 ## Validation against real lines
 
 ```bash
@@ -174,7 +214,7 @@ Interactive docs: `http://localhost:8000/docs`. Other endpoints:
 
 ### Projects and routes
 
-Stored in SQLite (`GENTIE_DB`, default `data/projects.db`). Phases: `drafting | comparing | permit-risk | ready`.
+Stored in SQLite (`GENTIE_DB`, default `data/projects.db`) or MongoDB (`MONGO_URL`; see [Project store](#project-store-sqlite-or-mongodb)). Phases: `drafting | comparing | permit-risk | ready`.
 
 | Endpoint | Body | Returns |
 |---|---|---|
@@ -187,6 +227,8 @@ Stored in SQLite (`GENTIE_DB`, default `data/projects.db`). Phases: `drafting | 
 | `GET /routes/{id}` | | the stored route; `result` is the full `POST /route` response |
 | `PATCH /routes/{id}` | `{name}` | the route |
 | `DELETE /routes/{id}` | | 204 |
+| `GET /spatial/routes-near?lon=&lat=&km=2&limit=50` | | saved routes whose line passes within `km` of the point, nearest first: route summary + `project_id`, `project_name`, `distance_km` |
+| `GET /spatial/tribal-crossings` | | saved routes whose line intersects a tribal land polygon: route summary + `project_id`, `project_name`, `tribal_lands` (names) |
 
 Unknown ids return 404. Out-of-region or same-cell endpoints return 400 with a `detail` message and store nothing.
 

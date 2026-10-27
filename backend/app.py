@@ -20,7 +20,10 @@ POST /projects         {name, voltage_kv, phase, filing_target?}
 GET/PATCH/DELETE /projects/{id}       PATCH with new start_lonlat/end_lonlat recomputes every route first
 POST /projects/{id}/routes            {preset, start_lonlat?, end_lonlat?} -> computes + stores a route
 GET/PATCH/DELETE /routes/{id}         PATCH {name}
-                       store: SQLite at GENTIE_DB (data/projects.db), seeded with samples on first start
+GET  /spatial/routes-near    ?lon=&lat=&km=2&limit=50 -> saved routes passing within km of the point, nearest first
+GET  /spatial/tribal-crossings  saved routes whose line intersects tribal land, with the lands crossed
+                       store: MongoDB when MONGO_URL is set (2dsphere-indexed routes), else SQLite at GENTIE_DB
+                       (data/projects.db, spatial queries by brute force); seeded with samples on first start
 GET  /                 the multi-page frontend (static files in frontend/: index, dashboard, project, route)
 
 Concurrency: /route is async; routing (CPU-bound) runs in a ProcessPoolExecutor whose
@@ -31,13 +34,13 @@ share one computation (single-flight).  Environment variables:
     ROUTE_WORKERS     worker processes (default: auto, up to 8 as CPUs and free memory allow;
                       0 = inline in a thread pool)
     ROUTE_CACHE_SIZE  cached responses (default 1024; 0 disables)
-    GENTIE_DB         project store path (default data/projects.db)
+    MONGO_URL         use the MongoDB store (e.g. mongodb://localhost:27017); MONGO_DB names the database (default gentie)
+    GENTIE_DB         SQLite project store path when MONGO_URL is unset (default data/projects.db)
     GENTIE_NO_SEED    1 = don't create sample projects in an empty store
 """
 import asyncio
 import json
 import os
-import sqlite3
 from collections import OrderedDict
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
@@ -45,7 +48,7 @@ from contextlib import asynccontextmanager
 from datetime import date
 from typing import Annotated, Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
@@ -56,7 +59,7 @@ from backend.weather.history_service import fetch_outlook
 
 import config as C
 from backend import climate, inventory, seed, worker
-from backend.store import Store
+from backend.store import ProjectNotFound, open_store
 
 Phase = Literal["drafting", "comparing", "permit-risk", "ready"]
 Preset = Literal[tuple(C.PRESETS)]
@@ -152,7 +155,8 @@ async def lifespan(_app):
         worker.init_worker()
         mode = "inline (thread pool, single process)"
     print(f"[gentie] {mode}; cache {CACHE_SIZE} entries; synthetic layers: {state['meta']['synthetic_layers'] or 'none'}")
-    state["store"] = Store(os.getenv("GENTIE_DB", C.PROJECTS_DB))
+    state["store"] = open_store()
+    print(f"[gentie] project store: {state['store'].kind}")
     await seed.seed_if_empty(state["store"], cached_route)
     backfill = None if CLIMATE_OFF else asyncio.create_task(_backfill_climate())
     yield
@@ -328,9 +332,20 @@ async def add_route(id: int, req: RouteCreate):
         if (start, end) != (p["start_lonlat"], p["end_lonlat"]):
             state["store"].update_project(id, start_lonlat=start, end_lonlat=end)
         summary = state["store"].add_route(id, C.PRESETS[req.preset]["label"], req.preset, result)
-    except sqlite3.IntegrityError:  # project deleted while the route was computing
+    except ProjectNotFound:  # project deleted while the route was computing
         raise HTTPException(status_code=404, detail=f"project {id} not found")
     return {"route_summary": summary, "result": result}
+
+
+@app.get("/spatial/routes-near")
+def routes_near(lon: float = Query(ge=-180, le=180), lat: float = Query(ge=-90, le=90),
+                km: float = Query(2.0, gt=0, le=100), limit: int = Query(50, ge=1, le=500)):
+    return state["store"].routes_near(lon, lat, km, limit)
+
+
+@app.get("/spatial/tribal-crossings")
+def tribal_crossings():
+    return state["store"].tribal_crossings()
 
 
 @app.get("/routes/{id}")
@@ -398,7 +413,7 @@ def inventory_bids(item: str, qty: Annotated[float, Field(gt=0)], voltage_kv: in
 @app.get("/stats")
 def stats():
     return {"executor": "process" if state["pool"] else "inline", "workers": len(state["pids"]) or 1,
-            "worker_pids": state["pids"], "cache": state["cache"].stats()}
+            "worker_pids": state["pids"], "cache": state["cache"].stats(), "store": state["store"].kind}
 
 
 @app.get("/overlays/{name}")

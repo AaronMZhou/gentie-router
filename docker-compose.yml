@@ -1,0 +1,16 @@
+# Optional MongoDB for the project/route store (the app uses SQLite unless MONGO_URL is set).
+#   docker compose up -d mongo
+#   MONGO_URL=mongodb://localhost:27017 python -m uvicorn backend.app:app --port 8000
+services:
+  mongo:
+    image: mongo:8.0
+    container_name: gentie-mongo
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - gentie-mongo-data:/data/db
+    restart: unless-stopped
+
+volumes:
+  gentie-mongo-data:
+    name: gentie-mongo-data
